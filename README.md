@@ -4,9 +4,20 @@ AI-native project management platform. Mirrors a local Obsidian vault to a cloud
 database, exposes it to AI agents over MCP, and provides a web UI for browsing
 and editing.
 
-This repo is currently at **Phase 0** — the foundation. See
-`/Users/keeganlamar/Documents/ViaOps/Knowledge/Frameworks/AI-Native PM Platform - MVP Spec.md`
-for the full multi-phase plan.
+## Documentation
+
+All living docs are in [`docs/`](./docs/) and mirrored from the canonical
+home in `~/Documents/ViaOps/Knowledge/Frameworks/Shared Brain/`:
+
+- [`docs/spec.md`](./docs/spec.md) — the MVP technical spec
+- [`docs/build-log.md`](./docs/build-log.md) — phase-by-phase narrative,
+  status snapshot, divergences from spec
+- [`docs/decisions.md`](./docs/decisions.md) — ADR log
+- [`docs/runbook.md`](./docs/runbook.md) — common ops tasks (rotate keys,
+  add MCP tool, debug, etc.)
+
+**Documentation rule:** every milestone updates docs in both vault and
+repo. See [`AGENTS.md`](./AGENTS.md) for the full rule.
 
 ## Stack
 
