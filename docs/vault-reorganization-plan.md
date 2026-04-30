@@ -2,14 +2,49 @@
 title: Shared Brain — Vault Reorganization Plan
 created: 2026-04-30
 updated: 2026-04-30
-status: proposal-awaiting-decision
+status: decisions-locked
 tags: [viaops-internal, shared-brain, vault, reorg]
 related: "[[AI-Native PM Platform - MVP Spec]]"
 ---
 
 # Shared Brain — Vault Reorganization Plan
 
-> **Status:** Proposal generated 2026-04-30 by audit pass over `~/Documents/ViaOps`. Keegan reviews → answers the open questions at the bottom → we execute the agreed-on file moves and the platform's Shared Brain folder structure mirrors the vault 1:1.
+> **Status:** Audit + decisions complete 2026-04-30. Phase A cleanups
+> executed (Archive deleted, stale plugin removed, root plugins moved
+> into `Plugins/`). Phase B (Jason Webb folder, ViaOps Assistant
+> consolidation, root `docs/`, `viaops-website/` local code clone)
+> awaiting final go.
+
+## ✅ Decisions locked
+
+### Final platform space hierarchy
+- **ViaOps Internal** (team) — internal umbrella
+  - Project: **Shared Brain — AI PM Platform**
+  - Project: **ViaOps Website Redesign**
+- **SimHouse** (team)
+  - Project: **PEAK Golf — Platform Instance**
+  - Project: **SwingBays — Platform Instance**
+- **Coaching** (dept) — *changed from team to dept per Keegan*
+  - Project: **Emma Thyne — Coaching Engagement**
+  - Project: **Nicole Brait — Coaching Engagement**
+- **My Electric Home** (client)
+- **Trade Oracle** (client)
+- **XP Flow** (client)
+  - Project: **Staff AI Builds**
+    - Task: **Dustin Howes — AI Build** (in_progress)
+    - Task: **Mark Abrams — XP Flow EA** (in_progress)
+    - Task: **Jake Leskovar — AI Build** (backlog)
+
+### Open question answers
+| # | Question | Decision |
+|---|---|---|
+| 1 | Website folder | **Move to GitHub-only.** Repo already exists at `keegan-pixel/ViaOps-Website` (clean, in sync). Local code clone gets deleted; the three summary `.md` files stay in vault under `Website/`. |
+| 2 | Dashboard/Daily Notes | **Local-only.** (Default kept.) |
+| 3 | Meetings folder | **Centralized + tagged per client.** |
+| 4 | LinkedIn folder | **Sync to platform.** |
+| 5 | Coaching space type | **`dept`.** |
+| 6 | Website Redesign scope | **Project under ViaOps Internal**, not its own space. |
+| 7 | Client project structure | **One project per "build type" with tasks per build.** XP Flow → "Staff AI Builds" → tasks per person. Same pattern for clients with multiple builds. |
 
 > **Related:**
 > - [[AI-Native PM Platform - MVP Spec]] — overall plan
@@ -171,26 +206,40 @@ The current `Knowledge/` structure is already strong. Recommend these top-level 
 
 ---
 
-## 7. Open Questions for Keegan
+## 7. Original open questions — RESOLVED
 
-1. **Website folder (~17K files)** — keep in vault, or move to GitHub-only?
-2. **Dashboard/Daily Notes** — local-only personal log, or platform activity?
-3. **Meetings folder** — centralized + tagged, or per-client subfolders?
-4. **LinkedIn folder** — sync-worthy now, or local for now?
-5. **Coaching Space type** — `team` or `dept`? (Recommend `team`.)
-6. **Website Redesign scope** — single project under ViaOps Internal, or its own space? (Recommend own space if codebase stays in vault.)
-7. **Client Project structure** — multiple projects per build (current `Clients/XP Flow/Dustin Howes — AI Build/`), or one "Client Builds" project with items per build? (Current is more granular; either works.)
+All seven open questions have been answered (see "Decisions locked" at
+the top of this file). This section preserved as a record of the
+resolution.
 
 ---
 
-## 8. Summary & Next Steps
+## 8. Execution status
 
-**No major restructuring required.** Vault is intentional and maps well.
+### ✅ Phase A — done 2026-04-30
+- Deleted `Archive/` (12 stale files, 196K)
+- Deleted root `eod-wrap.plugin` (older duplicate, Apr 11; kept newer
+  Apr 17 version in `Plugins/`)
+- Moved `vault-tools.plugin` and `vault-update.plugin` from root to
+  `Plugins/`
+- Platform spaces + projects + tasks created via MCP to match the final
+  structure (see "Decisions locked")
 
-**Immediate actions (before platform full sync):**
-1. Delete: `Archive/`, root plugin duplicates, `Clients/Jason Webb/`, root `docs/`
-2. Decide: website folder placement, meetings centralization
-3. Consolidate AI-config folders (remove `ViaOps Assistant/`, keep `Assistant/`)
-4. Answer the 7 open questions above
+### ⏸ Phase B — awaiting final confirmation
+- `Clients/Jason Webb — Solomon's Edge/` — not a real client; recategorize
+  to Pipeline wiki entry then delete folder
+- `ViaOps Assistant/` — appears to be a shadow copy of `Assistant/`;
+  archive or delete after confirming nothing important is uniquely there
+- Root `docs/` folder — vestigial; either delete or move into the
+  shared-brain repo
+- `Website/viaops-website/` — large local code clone (~17K files); already
+  fully in sync with `keegan-pixel/ViaOps-Website` on GitHub; safe to
+  delete locally. The three summary `.md` files at `Website/` root level
+  (`PROJECT_LOG.md`, `VIAOPS_PROJECT_HANDOFF.md`,
+  `ViaOps Website Redesign Plan.md`) stay.
 
-**Once answered:** vault path structure → platform 1:1 mapping is straightforward. Meetings sync as Activity; `Knowledge/` subfolders become Wiki categories; `Clients/` + `Coaching/` + `SimHouse.io/` + `Website/` + `Projects/` become Spaces with Projects underneath.
+### Phase C — once Phase B is clean
+- Run full vault sync (`npm run sync:once`) to populate the platform
+- Re-run `npm run backfill:connections` to rebuild edges across the
+  newly-synced content
+- Phase 5 work (activity feed UI + built-in Claude chat) starts
