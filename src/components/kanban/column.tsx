@@ -57,7 +57,7 @@ export function KanbanColumn({
         className={cn(
           "flex w-10 shrink-0 flex-col overflow-hidden rounded-lg border border-[hsl(var(--border))]",
           STATUS_COLUMN_TINT[status],
-          isOver && "ring-2 ring-[hsl(var(--ring))]",
+          isOver && "ring-2 ring-[hsl(var(--ring))] ring-offset-2 ring-offset-[hsl(var(--background))]",
         )}
       >
         <div className={cn("h-1 w-full", STATUS_STRIPE[status])} aria-hidden="true" />
@@ -87,7 +87,7 @@ export function KanbanColumn({
       className={cn(
         "flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-[hsl(var(--border))]",
         STATUS_COLUMN_TINT[status],
-        isOver && "ring-2 ring-[hsl(var(--ring))]",
+        isOver && "ring-2 ring-[hsl(var(--ring))] ring-offset-2 ring-offset-[hsl(var(--background))]",
       )}
     >
       {/* Status accent stripe — top edge. */}

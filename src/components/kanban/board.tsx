@@ -3,13 +3,19 @@
 import * as React from "react";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./column";
+import { KanbanCardOverlay } from "./card";
 import { ItemDetailDrawer } from "./detail-drawer";
 import { STATUS_ORDER, type Item, type ItemStatus } from "./types";
 
@@ -24,14 +30,17 @@ export function KanbanBoard({
 }) {
   const [items, setItems] = React.useState<Item[]>(initialItems);
   const [active, setActive] = React.useState<Item | null>(null);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [originalStatus, setOriginalStatus] = React.useState<ItemStatus | null>(null);
+  // Track whether a drag is currently in flight so polling doesn't clobber
+  // the optimistic cross-container moves we apply during onDragOver.
+  const draggingRef = React.useRef(false);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  // Per-project collapse state, persisted to localStorage so layout sticks
-  // across reloads. Default: all expanded.
   const storageKey = `shared-brain.kanban.collapsed.${projectId}`;
   const [collapsed, setCollapsed] = React.useState<Set<ItemStatus>>(new Set());
 
-  // Hydrate from localStorage on mount only.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -61,7 +70,6 @@ export function KanbanBoard({
     [storageKey],
   );
 
-  // Group items into columns whenever the items array changes.
   const grouped = React.useMemo(() => {
     const out: Record<ItemStatus, Item[]> = {
       backlog: [],
@@ -75,22 +83,23 @@ export function KanbanBoard({
     return out;
   }, [items]);
 
-  // Polling for AI / sync-driven changes. Runs at 3s; pauses when
-  // tab is hidden so we don't burn requests for nothing.
+  // Polling for AI / sync-driven changes. Pauses while the tab is hidden and
+  // while the user is actively dragging (so we don't clobber the optimistic
+  // cross-container state from onDragOver).
   React.useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
-      if (document.hidden) return scheduleNext();
+      if (document.hidden || draggingRef.current) return scheduleNext();
       try {
         const res = await fetch(`/api/items?projectId=${projectId}`, { cache: "no-store" });
         if (!res.ok) return scheduleNext();
         const json = (await res.json()) as { items: Item[] };
-        if (cancelled) return;
-        setItems((prev) => mergePreservingActiveDrag(prev, json.items));
+        if (cancelled || draggingRef.current) return;
+        setItems(json.items);
       } catch {
-        // Network blip — try again on next interval.
+        // network blip — retry on next tick
       }
       scheduleNext();
     };
@@ -106,41 +115,102 @@ export function KanbanBoard({
     };
   }, [projectId]);
 
-  const onDragEnd = async (event: DragEndEvent) => {
+  /**
+   * For a given dnd-kit id, figure out which column (status) it belongs to.
+   * Column ids are the status enum values themselves. Card ids resolve via
+   * the items list.
+   */
+  const findStatusForId = React.useCallback(
+    (id: string): ItemStatus | null => {
+      if ((STATUS_ORDER as readonly string[]).includes(id)) return id as ItemStatus;
+      const item = items.find((i) => i.id === id);
+      return item?.status ?? null;
+    },
+    [items],
+  );
+
+  // Collision detection: prefer the droppable the pointer is actually inside,
+  // fall back to rect intersection for the case where the cursor briefly
+  // leaves all droppables (e.g. between columns).
+  const collisionDetection: CollisionDetection = React.useCallback((args) => {
+    const pointer = pointerWithin(args);
+    if (pointer.length > 0) return pointer;
+    return rectIntersection(args);
+  }, []);
+
+  const onDragStart = (event: DragStartEvent) => {
+    const id = String(event.active.id);
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    setActiveId(id);
+    setActive(null); // close detail drawer if open
+    setOriginalStatus(item.status);
+    draggingRef.current = true;
+  };
+
+  const onDragOver = (event: DragOverEvent) => {
     const { active: dragged, over } = event;
     if (!over) return;
+    const draggedId = String(dragged.id);
+    const overId = String(over.id);
+    if (draggedId === overId) return;
 
-    const item = items.find((i) => i.id === dragged.id);
-    if (!item) return;
+    const targetStatus = findStatusForId(overId);
+    if (!targetStatus) return;
 
-    // Drop target can be either a column id (status) or another card id.
-    const overData = over.data.current as { type?: string; status?: ItemStatus } | undefined;
-    const dropStatus =
-      overData?.type === "column"
-        ? overData.status
-        : (items.find((i) => i.id === over.id)?.status ?? null);
+    setItems((prev) => {
+      const me = prev.find((i) => i.id === draggedId);
+      if (!me || me.status === targetStatus) return prev;
+      return prev.map((i) => (i.id === draggedId ? { ...i, status: targetStatus } : i));
+    });
+  };
 
-    if (!dropStatus || dropStatus === item.status) return;
+  const onDragEnd = async (event: DragEndEvent) => {
+    const draggedId = String(event.active.id);
+    const original = originalStatus;
 
-    // Optimistic update.
-    const before = items;
-    setItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, status: dropStatus, updatedAt: new Date() } : i)),
-    );
+    // Reset drag state regardless of outcome so the UI unblocks.
+    setActiveId(null);
+    setOriginalStatus(null);
+    // Allow polling to resume after a small grace window (lets the PATCH
+    // round-trip complete first so the next poll sees the new server state).
+    setTimeout(() => {
+      draggingRef.current = false;
+    }, 500);
+
+    const finalItem = items.find((i) => i.id === draggedId);
+    if (!finalItem || !original) return;
+    if (finalItem.status === original) return; // no-op move within the same column
 
     try {
-      const res = await fetch(`/api/items/${item.id}`, {
+      const res = await fetch(`/api/items/${draggedId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: dropStatus }),
+        body: JSON.stringify({ status: finalItem.status }),
       });
-      if (!res.ok) throw new Error(`PATCH failed: ${res.status}`);
+      if (!res.ok) throw new Error(`PATCH ${res.status}`);
       const json = (await res.json()) as { item: Item };
-      setItems((prev) => prev.map((i) => (i.id === item.id ? json.item : i)));
+      setItems((prev) => prev.map((i) => (i.id === draggedId ? json.item : i)));
     } catch {
-      // Revert on failure.
-      setItems(before);
+      // Revert to the original column on failure.
+      setItems((prev) =>
+        prev.map((i) => (i.id === draggedId ? { ...i, status: original } : i)),
+      );
     }
+  };
+
+  const onDragCancel = () => {
+    // User pressed Esc or the drag was aborted — revert the optimistic move.
+    if (activeId && originalStatus) {
+      const id = activeId;
+      const status = originalStatus;
+      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
+    }
+    setActiveId(null);
+    setOriginalStatus(null);
+    setTimeout(() => {
+      draggingRef.current = false;
+    }, 200);
   };
 
   const quickAdd = async (status: ItemStatus, title: string) => {
@@ -159,13 +229,18 @@ export function KanbanBoard({
 
   const handleDeleted = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
 
+  const activeItem = activeId ? items.find((i) => i.id === activeId) ?? null : null;
+
   return (
     <>
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
-        {/* Outer wrapper handles horizontal scroll; inner row uses min-w-max
-            so the columns don't try to fit into the page's width. The
-            negative side margins make the scrollable area span the full
-            inner width of the page padding. */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
         <div className="-mx-6 overflow-x-auto px-6 pb-4">
           <div className="flex min-w-max gap-3">
             {STATUS_ORDER.map((status) => (
@@ -181,7 +256,12 @@ export function KanbanBoard({
             ))}
           </div>
         </div>
+
+        <DragOverlay dropAnimation={{ duration: 180 }}>
+          {activeItem ? <KanbanCardOverlay item={activeItem} /> : null}
+        </DragOverlay>
       </DndContext>
+
       <ItemDetailDrawer
         item={active}
         onClose={() => setActive(null)}
@@ -190,18 +270,4 @@ export function KanbanBoard({
       />
     </>
   );
-}
-
-/**
- * When the polling response comes back while the user is mid-drag we don't
- * want to clobber their optimistic state. For the simple case (no drag in
- * flight), just take the server view; otherwise leave local state alone.
- * dnd-kit doesn't expose an "is anything currently dragging" flag from
- * outside, so we do a lighter heuristic: prefer server data, but if any
- * item id changed status both ways within a 5-second window, the optimistic
- * write hasn't landed yet and we keep ours. Simpler approach for MVP: just
- * prefer server. Adjust if drag corruption shows up.
- */
-function mergePreservingActiveDrag(_prev: Item[], next: Item[]): Item[] {
-  return next;
 }
