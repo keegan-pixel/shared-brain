@@ -127,16 +127,22 @@ export function KanbanBoard({
   return (
     <>
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
-        <div className="flex gap-3 overflow-x-auto pb-4">
-          {STATUS_ORDER.map((status) => (
-            <KanbanColumn
-              key={status}
-              status={status}
-              items={grouped[status]}
-              onCardClick={setActive}
-              onQuickAdd={quickAdd}
-            />
-          ))}
+        {/* Outer wrapper handles horizontal scroll; inner row uses min-w-max
+            so the columns don't try to fit into the page's width. The
+            negative side margins make the scrollable area span the full
+            inner width of the page padding. */}
+        <div className="-mx-6 overflow-x-auto px-6 pb-4">
+          <div className="flex min-w-max gap-3">
+            {STATUS_ORDER.map((status) => (
+              <KanbanColumn
+                key={status}
+                status={status}
+                items={grouped[status]}
+                onCardClick={setActive}
+                onQuickAdd={quickAdd}
+              />
+            ))}
+          </div>
         </div>
       </DndContext>
       <ItemDetailDrawer

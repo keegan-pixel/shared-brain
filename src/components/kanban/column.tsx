@@ -6,7 +6,9 @@ import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { KanbanCard } from "./card";
+import { STATUS_COLUMN_TINT, STATUS_STRIPE } from "./colors";
 import { STATUS_LABELS, type Item, type ItemStatus } from "./types";
 
 export function KanbanColumn({
@@ -45,13 +47,18 @@ export function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-72 shrink-0 flex-col rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 ${
-        isOver ? "ring-2 ring-[hsl(var(--ring))]" : ""
-      }`}
+      className={cn(
+        "flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-[hsl(var(--border))]",
+        STATUS_COLUMN_TINT[status],
+        isOver && "ring-2 ring-[hsl(var(--ring))]",
+      )}
     >
-      <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
+      {/* Status accent stripe — top edge. */}
+      <div className={cn("h-1 w-full", STATUS_STRIPE[status])} aria-hidden="true" />
+
+      <div className="flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--background))]/40 px-3 py-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">{STATUS_LABELS[status]}</h3>
+          <h3 className="text-sm font-semibold">{STATUS_LABELS[status]}</h3>
           <span className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
             {items.length}
           </span>
@@ -69,7 +76,7 @@ export function KanbanColumn({
       </div>
 
       <SortableContext id={status} items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-2 p-2 min-h-16">
+        <div className="flex min-h-16 flex-col gap-2 p-2">
           {items.map((item) => (
             <KanbanCard key={item.id} item={item} onClick={() => onCardClick(item)} />
           ))}
@@ -77,7 +84,7 @@ export function KanbanColumn({
       </SortableContext>
 
       {adding && (
-        <div className="border-t border-[hsl(var(--border))] p-2">
+        <div className="border-t border-[hsl(var(--border))] bg-[hsl(var(--background))]/40 p-2">
           <Input
             autoFocus
             value={draft}
