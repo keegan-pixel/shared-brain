@@ -28,6 +28,7 @@ why. Updated at the end of each phase.
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 | Local agent + platform sync API; full vault scan dry-run clean (402 files mapped) |
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 | dnd-kit drag-and-drop, quick-add per column, detail drawer, 3s polling for AI/sync changes |
 | 4a — Connection graph foundations | ✅ Complete | 2026-04-30 | Schema extension, write-time + read-time edge extraction, panel UI, inline `[[wikilink]]` rendering |
+| Vault cleanup + full sync (Phase C) | ✅ Complete | 2026-04-30 | Vault reorg done; 440 wiki pages + 229 items synced across 6 spaces |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
 
@@ -71,6 +72,53 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase C — Vault Reorganization + Full Sync
+
+**Shipped:** 2026-04-30
+
+### Vault cleanup
+Cumulative across Phase A + Phase B + ViaOps Assistant reconciliation:
+- ~700M reclaimed
+- 4,500+ duplicate / subset files removed
+- Vault root now has 17 canonical directories with no shadow workspaces
+- Skills source files (`build_invoice.py`, `invoice-generator-SKILL.md`)
+  preserved at new `Skills/invoice-generator-source/` next to the
+  `.skill` bundle
+
+### Full vault sync
+- 444 markdown files mapped, 443 syncable, 1 ignored, 0 errors final
+  (4 errors on first pass — bad YAML frontmatter + an item title >240
+  chars; fixed by hardening `parser.ts` to fall back on YAML errors and
+  truncate long titles)
+- Platform state: **440 wiki pages, 229 items, 6 spaces, 7 projects,
+  10+ space-owned tasks**
+
+### Mapper expansion
+Mapper now covers (in addition to spec table):
+- LinkedIn (4 thought-leadership categories) → wiki tagged `linkedin`
+- Coaching (Clients, Concepts, Resources subfolders) → wiki tagged
+  `coaching` + sub-tag
+- Partners → wiki tagged `partner`
+- Website → wiki tagged `website`
+- Catch-all for `Clients/[Name]/<other>.md` → wiki tagged with client
+  slug (was being silently dropped)
+- **Meetings now wiki pages** (was activity-only). Lets `[[wikilinks]]`
+  from any other page resolve to meeting notes — see [[Decisions#ADR-014]].
+- `Dashboard/Daily Notes` removed from default sync prefixes
+  (local-only per Keegan)
+
+### Connection backfill after full sync
+- Many task wikilinks that pointed at `[[Meetings/...]]` were unresolved
+  in the first run because meetings were activity-log entries, not wiki
+  pages. After flipping meetings to wiki and re-syncing, references
+  resolve.
+- Some wikilinks remain unresolved — they reference items in folders we
+  don't sync (`Strategic Memos/`, etc.) or use full-path notation
+  (`[[Knowledge/AI Research/...]]`) where the full path doesn't match
+  any candidate key. Acceptable noise; can iterate later.
 
 ---
 

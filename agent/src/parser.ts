@@ -9,16 +9,30 @@ export type ParsedFile = {
 };
 
 export function parseMarkdown(raw: string, fallbackTitle: string): ParsedFile {
-  const parsed = matter(raw);
-  const fm = parsed.data as Record<string, unknown>;
-  const body = parsed.content;
+  // gray-matter throws on malformed YAML — fall back to body-only parse so a
+  // bad frontmatter block doesn't take out the whole sync run.
+  let fm: Record<string, unknown> = {};
+  let body: string;
+  try {
+    const parsed = matter(raw);
+    fm = (parsed.data as Record<string, unknown>) ?? {};
+    body = parsed.content;
+  } catch {
+    // Strip the YAML block (best-effort) and continue with the remaining body.
+    body = raw.replace(/^---[\s\S]*?---\s*/m, "");
+  }
 
-  let title = (fm.title as string | undefined)?.trim() || "";
+  // fm.title can technically be anything (string, number, object, null) if
+  // someone wrote weird YAML. Only treat strings as usable titles.
+  const fmTitle = typeof fm.title === "string" ? fm.title.trim() : "";
+  let title = fmTitle;
   if (!title) {
     const h1 = body.match(/^#\s+(.+)$/m);
     if (h1) title = h1[1].trim();
   }
   if (!title) title = fallbackTitle;
+  // Hard cap — DB column is 240 chars.
+  if (title.length > 240) title = title.slice(0, 237) + "...";
 
   let tags: string[] = [];
   if (Array.isArray(fm.tags)) tags = fm.tags.map(String);
@@ -66,7 +80,17 @@ export function parseTasks(body: string): ParsedTask[] {
     }
     const detail = detailLines.join("\n").trim() || undefined;
 
-    tasks.push({ line: i + 1, status, title, detail });
+    // The DB column for item title is varchar(240). Long task lines (e.g.
+    // a one-liner that includes the whole description) get truncated; the
+    // full text is preserved in `detail`.
+    const trimmedTitle =
+      title.length > 240 ? title.slice(0, 237) + "..." : title;
+    const fullDetail =
+      title.length > 240
+        ? `${detail ? `${detail}\n\n` : ""}_Original task line:_\n\n${title}`
+        : detail;
+
+    tasks.push({ line: i + 1, status, title: trimmedTitle, detail: fullDetail });
   }
 
   return tasks;

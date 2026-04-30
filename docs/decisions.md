@@ -20,6 +20,41 @@ Newest at the top.
 
 ---
 
+## ADR-014 — Meeting notes are wiki pages, not activity-feed entries
+
+**Date:** 2026-04-30 · Phase C
+**Decision:** `Meetings/*.md` and `Clients/[Name]/Meetings/*.md` map to
+**wiki pages tagged `meeting`** (and the client slug, where applicable),
+NOT to activity-feed entries.
+
+**Context:** The original spec table mapped meeting folders to "activity
+log entries." On the first full sync that's what we did, and it was
+wrong: tasks across the platform reference meetings via `[[2026-04-24 -
+Richard Lackey - In-Person Meeting]]`, which only resolves if the
+target is a wiki page (resolver queries `wiki_pages` table). With
+meetings as activity entries, ~50% of task wikilinks were unresolved.
+
+**Rejected:**
+- Keep meetings as activity-only — breaks backlink graph for the
+  highest-volume cross-reference pattern in the vault.
+- Sync meetings as BOTH wiki pages AND activity entries — duplicate
+  data, two sources of truth, complicates updates. Activity feed already
+  fills up with `sync_wiki_create` / `sync_wiki_update` entries on every
+  meeting sync, so the audit-trail intent is preserved.
+
+**Trade-off:** Some "events that happened at a time" intent is lost
+(meetings now look like content, not events). When Phase 5's activity
+feed UI ships, we can add explicit `met_with` activity entries derived
+from wiki page tags or frontmatter — but the wiki-page model wins for
+backlink resolution today.
+
+**Migration:** Re-syncing existing meeting files moves them from
+activity → wiki via the upsert path in `/api/sync/wiki`. Old activity
+entries from the first sync remain as historical noise; not worth
+deleting.
+
+---
+
 ## ADR-013 — Wikilink resolver matches by filename basename, not just title
 
 **Date:** 2026-04-30 · Phase 4a

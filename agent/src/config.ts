@@ -32,9 +32,14 @@ export function loadConfig(): SyncConfig {
         "Knowledge",
         "Pipeline",
         "Clients",
+        "Coaching",
         "SimHouse.io",
+        "Website",
+        "LinkedIn",
+        "Partners",
         "Meetings",
-        "Dashboard/Daily Notes",
+        // Note: Dashboard/Daily Notes is intentionally NOT synced. Per Keegan,
+        // daily notes stay as a local-only Obsidian log.
       ];
 
   return {
