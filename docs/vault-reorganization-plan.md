@@ -225,18 +225,40 @@ resolution.
 - Platform spaces + projects + tasks created via MCP to match the final
   structure (see "Decisions locked")
 
-### ⏸ Phase B — awaiting final confirmation
-- `Clients/Jason Webb — Solomon's Edge/` — not a real client; recategorize
-  to Pipeline wiki entry then delete folder
-- `ViaOps Assistant/` — appears to be a shadow copy of `Assistant/`;
-  archive or delete after confirming nothing important is uniquely there
-- Root `docs/` folder — vestigial; either delete or move into the
-  shared-brain repo
-- `Website/viaops-website/` — large local code clone (~17K files); already
-  fully in sync with `keegan-pixel/ViaOps-Website` on GitHub; safe to
-  delete locally. The three summary `.md` files at `Website/` root level
-  (`PROJECT_LOG.md`, `VIAOPS_PROJECT_HANDOFF.md`,
-  `ViaOps Website Redesign Plan.md`) stay.
+### ✅ Phase B — done 2026-04-30
+- Deleted `Clients/Jason Webb — Solomon's Edge/` (proposal docx — already
+  shelved per Apr 24 decision; engagement not pursuing). Pipeline contact
+  card at `Pipeline/Jason Webb.md` updated to remove the broken link
+  reference.
+- Deleted `Website/viaops-website/` (~616M code clone). Mirror on
+  `github.com/keegan-pixel/ViaOps-Website` is the source of truth. Both
+  remaining summary docs (`PROJECT_LOG.md`, `VIAOPS_PROJECT_HANDOFF.md`)
+  updated to point at the GitHub URL.
+- Deleted root `docs/` folder (a single Next.js stub file —
+  `app/getting-started/server-and-client-components.md`, vestigial).
+
+### ⚠️ `ViaOps Assistant/` — DO NOT DELETE without further review
+The original audit called this a "shadow copy of `Assistant/`." A direct
+diff during Phase B execution revealed it is **not** a shadow copy:
+
+- `Assistant/` is 2 files (March, untouched) — a tiny entry stub
+- `ViaOps Assistant/` is 15 entries actively edited through April 20,
+  including unique-to-it content:
+  - `Claude Code - Composio Migration Prompt.md`
+  - `Claude Code Routines - Research Brief.md`
+  - `build_invoice.py` + `invoice-generator-SKILL.md` + `invoice-generator.skill`
+  - Subfolders `Admin/`, `Client Builds/`, `Clients/`, `Pipeline/`,
+    `Plugins/`, `SimHouse/`, `Skills/`
+- Skill files in `ViaOps Assistant/Skills/` differ from those in root
+  `Skills/` (older — April 8 vs root April 17). Root is canonical/newer.
+- `ViaOps Assistant/Client Builds/` mirrors `Clients/XP Flow/Builds/`
+  but with potentially different contents per file.
+
+**Recommendation for next pass:** treat `ViaOps Assistant/` as a separate
+workspace that needs targeted reconciliation, not blanket deletion. For
+each subfolder, decide: merge into canonical location, archive
+separately, or delete after confirming no unique content. Best done
+file-by-file with Keegan present.
 
 ### Phase C — once Phase B is clean
 - Run full vault sync (`npm run sync:once`) to populate the platform
