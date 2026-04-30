@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus } from "lucide-react";
+import { ChevronsRightLeft, Plus } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,15 @@ import { STATUS_LABELS, type Item, type ItemStatus } from "./types";
 export function KanbanColumn({
   status,
   items,
+  collapsed,
+  onToggleCollapse,
   onCardClick,
   onQuickAdd,
 }: {
   status: ItemStatus;
   items: Item[];
+  collapsed: boolean;
+  onToggleCollapse: (status: ItemStatus) => void;
   onCardClick: (item: Item) => void;
   onQuickAdd: (status: ItemStatus, title: string) => Promise<void>;
 }) {
@@ -44,6 +48,39 @@ export function KanbanColumn({
     }
   };
 
+  // Collapsed: narrow vertical strip with rotated label. Still a drop target —
+  // dragging a card onto the strip moves it to this status (count updates).
+  if (collapsed) {
+    return (
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "flex w-10 shrink-0 flex-col overflow-hidden rounded-lg border border-[hsl(var(--border))]",
+          STATUS_COLUMN_TINT[status],
+          isOver && "ring-2 ring-[hsl(var(--ring))]",
+        )}
+      >
+        <div className={cn("h-1 w-full", STATUS_STRIPE[status])} aria-hidden="true" />
+        <button
+          type="button"
+          onClick={() => onToggleCollapse(status)}
+          aria-label={`Expand ${STATUS_LABELS[status]} column`}
+          className="flex flex-1 cursor-pointer flex-col items-center gap-2 py-3 hover:bg-[hsl(var(--accent))]"
+        >
+          <span className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+            {items.length}
+          </span>
+          <span
+            className="select-none whitespace-nowrap text-xs font-medium"
+            style={{ writingMode: "vertical-rl" }}
+          >
+            {STATUS_LABELS[status]}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -57,12 +94,18 @@ export function KanbanColumn({
       <div className={cn("h-1 w-full", STATUS_STRIPE[status])} aria-hidden="true" />
 
       <div className="flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--background))]/40 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">{STATUS_LABELS[status]}</h3>
+        <button
+          type="button"
+          onClick={() => onToggleCollapse(status)}
+          aria-label={`Collapse ${STATUS_LABELS[status]} column`}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded text-left hover:opacity-70"
+        >
+          <ChevronsRightLeft className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
+          <h3 className="truncate text-sm font-semibold">{STATUS_LABELS[status]}</h3>
           <span className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
             {items.length}
           </span>
-        </div>
+        </button>
         {!adding && (
           <Button
             variant="ghost"

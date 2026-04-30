@@ -26,6 +26,41 @@ export function KanbanBoard({
   const [active, setActive] = React.useState<Item | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
+  // Per-project collapse state, persisted to localStorage so layout sticks
+  // across reloads. Default: all expanded.
+  const storageKey = `shared-brain.kanban.collapsed.${projectId}`;
+  const [collapsed, setCollapsed] = React.useState<Set<ItemStatus>>(new Set());
+
+  // Hydrate from localStorage on mount only.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as ItemStatus[];
+      setCollapsed(new Set(parsed.filter((s) => STATUS_ORDER.includes(s))));
+    } catch {
+      // bad JSON or storage disabled — ignore
+    }
+  }, [storageKey]);
+
+  const toggleCollapse = React.useCallback(
+    (status: ItemStatus) => {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(status)) next.delete(status);
+        else next.add(status);
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          // storage disabled — fine, just don't persist
+        }
+        return next;
+      });
+    },
+    [storageKey],
+  );
+
   // Group items into columns whenever the items array changes.
   const grouped = React.useMemo(() => {
     const out: Record<ItemStatus, Item[]> = {
@@ -138,6 +173,8 @@ export function KanbanBoard({
                 key={status}
                 status={status}
                 items={grouped[status]}
+                collapsed={collapsed.has(status)}
+                onToggleCollapse={toggleCollapse}
                 onCardClick={setActive}
                 onQuickAdd={quickAdd}
               />
