@@ -18,7 +18,51 @@ for the full multi-phase plan.
 - **next-themes** for dark mode
 - **Vercel** for deploy
 
-## Phase 0 scope (this commit)
+## Phase 1 scope
+
+- **MCP server** mounted at `/api/mcp` (Streamable HTTP transport via
+  `mcp-handler` + `@modelcontextprotocol/sdk`).
+- All 8 read tools: `get_org`, `get_spaces`, `get_projects`, `get_items`,
+  `get_wiki_pages`, `get_activity_feed`, `get_backlinks`, `search`.
+- All 6 write tools: `create_item`, `update_item`, `move_item_status`,
+  `create_wiki_page`, `update_wiki_page`, `add_backlink`. Every write logs an
+  entry to `activity_feed` automatically.
+- Bearer-token auth (`MCP_API_KEY`). Single shared key for personal use;
+  per-client keys come later.
+- Optional OpenAI embeddings for `search` (text-embedding-3-small). Without
+  `OPENAI_API_KEY`, search and wiki pages fall back to text matching with no
+  embeddings.
+
+### Connecting Claude Desktop
+
+In Claude Desktop → Settings → Developer → Edit Config, add the MCP server:
+
+```json
+{
+  "mcpServers": {
+    "shared-brain": {
+      "url": "https://shared-brain-ecru.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer <MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+Replace `<MCP_API_KEY>` with the value from your `.env.local`. Restart Claude
+Desktop. You should see the 14 tools appear in the tools menu.
+
+For local testing, use `http://localhost:3000/api/mcp` instead.
+
+### Connecting Claude Code
+
+```bash
+claude mcp add --transport http shared-brain https://shared-brain-ecru.vercel.app/api/mcp \
+  --header "Authorization: Bearer <MCP_API_KEY>"
+```
+
+## Phase 0 scope
 
 - Next.js 16 scaffold, TS strict
 - Full DB schema for Phase 0–5 (orgs, spaces, projects, items, wiki_pages,
@@ -30,8 +74,8 @@ for the full multi-phase plan.
 - CRUD REST routes for orgs / spaces / projects / items (org-scoped)
 - ViaOps org auto-bootstraps on first authenticated request
 
-Not yet built (later phases): MCP server, vault sync agent, kanban UI, wiki UI,
-activity feed, built-in Claude chat.
+Not yet built (later phases): vault sync agent, kanban UI, wiki UI, activity
+feed, built-in Claude chat.
 
 ## Getting started
 
@@ -163,7 +207,6 @@ auto-created org.
 
 ## Next phases
 
-- **Phase 1:** MCP server (`@modelcontextprotocol/sdk`) — read/write tools.
 - **Phase 2:** Vault sync agent (chokidar) — local Obsidian → platform.
 - **Phase 3:** Kanban UI per project (6 swimlanes, dnd-kit).
 - **Phase 4:** Wiki + backlinks UI.
