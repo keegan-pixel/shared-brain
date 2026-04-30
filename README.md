@@ -1,36 +1,170 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Shared Brain
 
-## Getting Started
+AI-native project management platform. Mirrors a local Obsidian vault to a cloud
+database, exposes it to AI agents over MCP, and provides a web UI for browsing
+and editing.
 
-First, run the development server:
+This repo is currently at **Phase 0** — the foundation. See
+`/Users/keeganlamar/Documents/ViaOps/Knowledge/Frameworks/AI-Native PM Platform - MVP Spec.md`
+for the full multi-phase plan.
+
+## Stack
+
+- **Next.js 16** (App Router, TypeScript strict)
+- **Neon Postgres** + `pgvector` via `@neondatabase/serverless`
+- **Drizzle ORM** + drizzle-kit for migrations
+- **Clerk** for auth
+- **Tailwind v4** + shadcn-style primitives
+- **next-themes** for dark mode
+- **Vercel** for deploy
+
+## Phase 0 scope (this commit)
+
+- Next.js 16 scaffold, TS strict
+- Full DB schema for Phase 0–5 (orgs, spaces, projects, items, wiki_pages,
+  backlinks, activity_feed, vault_sync_log) — pgvector enabled
+- Clerk auth (single user; multi-user-ready)
+- App shell — sidebar (org → spaces → wiki), top bar (search stub, activity
+  stub, Claude chat stub, theme toggle, user menu), main area
+- Dark mode
+- CRUD REST routes for orgs / spaces / projects / items (org-scoped)
+- ViaOps org auto-bootstraps on first authenticated request
+
+Not yet built (later phases): MCP server, vault sync agent, kanban UI, wiki UI,
+activity feed, built-in Claude chat.
+
+## Getting started
+
+### 1. Install deps
+
+```bash
+npm install
+```
+
+### 2. Set up env vars
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in:
+
+- **DATABASE_URL** — Neon connection string (Postgres 17, pgvector enabled).
+  The migration script runs `CREATE EXTENSION IF NOT EXISTS vector` before
+  applying tables, so you don't need to enable it manually.
+- **NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY** + **CLERK_SECRET_KEY** — from
+  https://clerk.com → API Keys.
+
+### 3. Run migrations
+
+```bash
+npm run db:migrate
+```
+
+This creates all 8 tables and the `vector` extension on Neon.
+
+### 4. Dev server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. You'll be redirected to `/sign-in`. After signing
+in, your ViaOps org is auto-created.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Next.js dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run production build |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate a new SQL migration from `src/lib/db/schema.ts` |
+| `npm run db:migrate` | Apply pending migrations to the database in `DATABASE_URL` |
+| `npm run db:studio` | Open Drizzle Studio (web UI for the DB) |
 
-## Learn More
+## Project layout
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+  app/
+    (app)/                  Authenticated app shell — sidebar + topbar layout
+      layout.tsx
+      page.tsx              Home dashboard
+    api/
+      orgs/                 GET, PATCH
+      spaces/               GET, POST
+      spaces/[id]/          GET, PATCH, DELETE
+      projects/             GET (?spaceId=), POST
+      projects/[id]/        GET, PATCH, DELETE
+      items/                GET (?projectId=&status=), POST
+      items/[id]/           GET, PATCH, DELETE
+    sign-in/
+    sign-up/
+    layout.tsx              Root layout — Clerk + theme providers
+    globals.css
+  components/
+    ui/                     shadcn-style primitives (Button, Input)
+    sidebar.tsx
+    topbar.tsx
+    theme-provider.tsx
+    theme-toggle.tsx
+  lib/
+    db/
+      schema.ts             Drizzle schema — all 8 tables
+      client.ts             Drizzle + Neon HTTP client
+    org.ts                  Auth helper + ViaOps org bootstrap
+    api.ts                  ApiError, handle(), parseJson()
+    utils.ts                cn()
+  proxy.ts                  Clerk auth middleware (Next 16 "proxy" convention)
+drizzle/                    Generated migration SQL (committed)
+scripts/
+  migrate.ts                Migration runner — also enables pgvector
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## API surface (Phase 0)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+All routes require Clerk auth. All queries are scoped to the user's
+auto-created org.
 
-## Deploy on Vercel
+| Method | Path | Body |
+|---|---|---|
+| GET | `/api/orgs` | — |
+| PATCH | `/api/orgs` | `{ name }` |
+| GET | `/api/spaces` | — |
+| POST | `/api/spaces` | `{ name, type, accessRoles? }` |
+| GET | `/api/spaces/[id]` | — |
+| PATCH | `/api/spaces/[id]` | partial space |
+| DELETE | `/api/spaces/[id]` | — |
+| GET | `/api/projects?spaceId=...` | — |
+| POST | `/api/projects` | `{ spaceId, name, description? }` |
+| GET | `/api/projects/[id]` | — |
+| PATCH | `/api/projects/[id]` | partial project |
+| DELETE | `/api/projects/[id]` | — |
+| GET | `/api/items?projectId=...&status=...` | — |
+| POST | `/api/items` | `{ projectId, type, title, content?, status?, createdByAgent? }` |
+| GET | `/api/items/[id]` | — |
+| PATCH | `/api/items/[id]` | partial item |
+| DELETE | `/api/items/[id]` | — |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`type` is one of: `task | note | file | decision`.
+`status` is one of: `backlog | not_started | research_planning | in_progress | review | completed`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploying to Vercel
+
+1. Push this repo to GitHub.
+2. Import the repo at https://vercel.com/new.
+3. Add the env vars from `.env.local` to the Vercel project.
+4. In Clerk dashboard, add your Vercel URL as an allowed origin.
+5. Run `npm run db:migrate` locally pointing at the same `DATABASE_URL` (Vercel
+   doesn't auto-run it).
+
+## Next phases
+
+- **Phase 1:** MCP server (`@modelcontextprotocol/sdk`) — read/write tools.
+- **Phase 2:** Vault sync agent (chokidar) — local Obsidian → platform.
+- **Phase 3:** Kanban UI per project (6 swimlanes, dnd-kit).
+- **Phase 4:** Wiki + backlinks UI.
+- **Phase 5:** Activity feed + built-in Claude chat (Vercel AI SDK + Composio).
