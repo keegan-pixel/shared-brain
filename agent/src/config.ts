@@ -23,18 +23,25 @@ export function loadConfig(): SyncConfig {
     );
   }
 
+  // Allow override via env for surgical / scoped syncs:
+  //   SYNC_INCLUDE="Knowledge/Frameworks" npm run sync:once
+  const includeOverride = process.env.SYNC_INCLUDE;
+  const includePrefixes = includeOverride
+    ? includeOverride.split(",").map((s) => s.trim()).filter(Boolean)
+    : [
+        "Knowledge",
+        "Pipeline",
+        "Clients",
+        "SimHouse.io",
+        "Meetings",
+        "Dashboard/Daily Notes",
+      ];
+
   return {
     vaultRoot,
     apiBase,
     apiKey,
-    includePrefixes: [
-      "Knowledge",
-      "Pipeline",
-      "Clients",
-      "SimHouse.io",
-      "Meetings",
-      "Dashboard/Daily Notes",
-    ],
+    includePrefixes,
     ignorePrefixes: [
       ".obsidian",
       ".git",
