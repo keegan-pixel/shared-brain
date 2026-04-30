@@ -24,9 +24,9 @@ for the full multi-phase plan.
   `mcp-handler` + `@modelcontextprotocol/sdk`).
 - All 8 read tools: `get_org`, `get_spaces`, `get_projects`, `get_items`,
   `get_wiki_pages`, `get_activity_feed`, `get_backlinks`, `search`.
-- All 6 write tools: `create_item`, `update_item`, `move_item_status`,
-  `create_wiki_page`, `update_wiki_page`, `add_backlink`. Every write logs an
-  entry to `activity_feed` automatically.
+- All 8 write tools: `create_space`, `create_project`, `create_item`,
+  `update_item`, `move_item_status`, `create_wiki_page`, `update_wiki_page`,
+  `add_backlink`. Every write logs an entry to `activity_feed` automatically.
 - Bearer-token auth (`MCP_API_KEY`). Single shared key for personal use;
   per-client keys come later.
 - Optional OpenAI embeddings for `search` (text-embedding-3-small). Without

@@ -190,6 +190,58 @@ export function registerTools(server: McpServer, ctx: McpContext) {
   // ─── WRITE ────────────────────────────────────────────────────────────
 
   server.tool(
+    "create_space",
+    "Create a new space (client | dept | team) in the org.",
+    {
+      name: z.string().min(1).max(120),
+      type: z.enum(["client", "dept", "team"]),
+    },
+    async ({ name, type }) => {
+      const [created] = await db
+        .insert(spaces)
+        .values({ orgId: ctx.orgId, name, type })
+        .returning();
+      await logActivity({
+        orgId: ctx.orgId,
+        actorAgent: ctx.actorAgent,
+        action: "create_space",
+        entityType: "space",
+        entityId: created.id,
+        summary: `Created ${type} space "${name}"`,
+        metadata: { spaceId: created.id },
+      });
+      return ok({ space: created });
+    },
+  );
+
+  server.tool(
+    "create_project",
+    "Create a new project inside a space.",
+    {
+      space_id: z.string().uuid(),
+      name: z.string().min(1).max(160),
+      description: z.string().optional(),
+    },
+    async ({ space_id, name, description }) => {
+      await assertSpaceInOrg(ctx.orgId, space_id);
+      const [created] = await db
+        .insert(projects)
+        .values({ spaceId: space_id, name, description })
+        .returning();
+      await logActivity({
+        orgId: ctx.orgId,
+        actorAgent: ctx.actorAgent,
+        action: "create_project",
+        entityType: "project",
+        entityId: created.id,
+        summary: `Created project "${name}"`,
+        metadata: { spaceId: space_id, projectId: created.id },
+      });
+      return ok({ project: created });
+    },
+  );
+
+  server.tool(
     "create_item",
     "Create a new item (task | note | file | decision) inside a project.",
     {
