@@ -1,12 +1,13 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// MCP endpoints use Bearer-token auth, not Clerk session cookies.
+// MCP and sync endpoints use Bearer-token auth, not Clerk session cookies.
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/mcp",
   "/api/sse",
   "/api/message",
+  "/api/sync(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

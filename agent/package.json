@@ -1,0 +1,23 @@
+{
+  "name": "shared-brain-vault-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local file watcher that mirrors the Obsidian vault into the Shared Brain platform.",
+  "scripts": {
+    "sync:once": "tsx src/index.ts --mode=once",
+    "sync:watch": "tsx src/index.ts --mode=watch",
+    "sync:dry": "tsx src/index.ts --mode=once --dry-run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "gray-matter": "^4.0.3",
+    "p-limit": "^7.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -25,7 +25,7 @@ why. Updated at the end of each phase.
 |---|---|---|---|
 | 0 — Foundation | ✅ Complete | 2026-04-29 | Next.js 16, Neon + pgvector, Clerk, shadcn shell, CRUD API |
 | 1 — MCP Server | ✅ Complete | 2026-04-30 | All read + write tools live, Claude Desktop connected |
-| 2 — Vault Sync Agent | ⏳ Not started | — | Next up |
+| 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 | Local agent + platform sync API; full vault scan dry-run clean (402 files mapped) |
 | 3 — Kanban UI | ⏳ Not started | — | Interim list view shipped in Phase 1 |
 | 4 — Wiki + Backlinks | ⏳ Not started | — | |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
@@ -70,6 +70,76 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 2 — Vault Sync Agent
+
+**Shipped:** 2026-04-30
+**Spec target:** Week 3–4
+
+### What was built
+
+**Platform side (`src/`):**
+- New `vault_sync_log` columns: `entity_type`, `entity_id` so the table doubles
+  as a path → entity dispatch index for upserts. Migration `0001`.
+- Six new HTTP endpoints under `/api/sync/*`, all Bearer-auth'd with the
+  same `MCP_API_KEY`:
+  - `POST /api/sync/wiki` — upsert wiki page (regenerates embedding)
+  - `POST /api/sync/space` — find-or-create space by name
+  - `POST /api/sync/project` — find-or-create project by (spaceId, name)
+  - `POST /api/sync/item` — upsert item by (filePath, lineKey)
+  - `POST /api/sync/activity` — append-only activity feed entry
+  - `GET /api/sync/log` + `POST /api/sync/log` — list / record errors
+- Sync paths added to the public route matcher in `src/proxy.ts` so Clerk
+  doesn't try to validate them.
+- All sync writes log to `activity_feed` with `actor_agent = "vault-sync"`.
+
+**Agent side (`agent/`):**
+- New subdirectory with its own `package.json`, `tsconfig.json`, and deps
+  (chokidar, gray-matter, p-limit). Excluded from the Next root tsconfig.
+- `src/config.ts` — vault root, include/ignore prefixes, concurrency cap.
+- `src/parser.ts` — frontmatter parsing and `[ ]` / `[x]` task extraction.
+- `src/mapper.ts` — vault-relative path → entity kind (per spec table):
+  - `Knowledge/**/*.md` → wiki page
+  - `Pipeline/*.md` → wiki page tagged `pipeline`
+  - `Clients/[Name]/_Overview.md` → wiki + ensures space exists
+  - `Clients/[Name]/_Tasks.md` → items (status from checkbox state)
+  - `Clients/[Name]/Meetings/*.md`, `Meetings/**/*.md`,
+    `Dashboard/Daily Notes/*.md` → activity log entries
+  - `SimHouse.io/*.md` → wiki page
+- `src/api.ts` — typed Bearer-auth fetch wrapper.
+- `src/sync.ts` — file → entity sync logic, idempotent.
+- `src/index.ts` — entrypoint with two modes:
+  - `npm run sync:once` — full scan, exit (bootstrap)
+  - `npm run sync:watch` — full scan + chokidar watcher (daemon)
+  - `npm run sync:dry` — `--dry-run`, no API calls
+- Concurrency capped at 5, errors per-file logged + `/api/sync/log` reports.
+- `Projects/shared-brain/**` and `Archive/` are hard-ignored to prevent
+  recursion and tomb-file noise.
+
+### Divergences from spec
+1. **Sync agent is server-to-server, not Clerk-authenticated.** Spec didn't
+   specify; chose to share `MCP_API_KEY` so there's a single rotation point.
+2. **launchd plist is a template in [[Runbook]], not committed as a file.**
+   Auto-start persistence requires explicit user opt-in. Template provided
+   for the user to install themselves.
+3. **`Archive/` excluded by default.** Spec didn't mention it; obvious
+   exclusion to avoid syncing tomb files.
+
+### Verification
+- Dry-run on full vault: 435 markdown files found, 402 mapped, 33 correctly
+  ignored, zero errors.
+- All sync routes typecheck and build cleanly. Vercel build passes.
+
+### Friction encountered
+- Next 16's typechecker tried to typecheck the agent subdir and failed on
+  `.ts` extensions in imports. Fixed by adding `agent` to the root
+  `tsconfig.json`'s `exclude` list. (Agent has its own tsconfig with
+  `allowImportingTsExtensions`.)
+- Harness blocked me from writing the launchd plist directly (correct call
+  — auto-start service is persistence). Template moved to runbook for
+  manual install.
 
 ---
 

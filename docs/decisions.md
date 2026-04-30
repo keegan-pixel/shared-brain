@@ -20,6 +20,66 @@ Newest at the top.
 
 ---
 
+## ADR-011 — `Archive/` excluded from vault sync by default
+
+**Date:** 2026-04-30 · Phase 2
+**Decision:** The vault sync agent's `ignorePrefixes` includes `Archive/`.
+
+**Context:** The vault has an `Archive/` folder for tomb files (old projects,
+deprecated notes, etc.). Syncing them clutters the platform with stale
+content that nobody wants AI agents to surface in search.
+
+**Trade-off:** If something genuinely useful gets archived, it disappears
+from the platform. Acceptable — archives are explicitly de-prioritized
+content. If the user re-needs an archived file, move it out of `Archive/`
+and the next sync picks it up.
+
+---
+
+## ADR-010 — `vault_sync_log` is the upsert dispatch index
+
+**Date:** 2026-04-30 · Phase 2
+**Decision:** Extend `vault_sync_log` with `entity_type` and `entity_id`
+columns so it serves both as a sync state log and as the file_path → entity
+lookup table for upserts.
+
+**Context:** Sync needs idempotency: re-syncing the same file shouldn't
+create duplicates. We need a way to map "I just parsed `Knowledge/foo.md`"
+to "this is wiki page UUID xyz." Two options:
+- Add a `metadata.filePath` indexed jsonb field to every syncable entity
+  table — works but requires per-table indexes and complicates queries.
+- Use the already-planned `vault_sync_log` table as a single dispatch
+  index — file_path is unique and we just record `(entity_type, entity_id)`
+  per row.
+
+Picked option B. Cleaner — one table holds all sync state.
+
+**Trade-off:** Cross-table foreign key isn't enforceable (entity_id points
+into different tables based on entity_type). The status invariant is
+maintained at the application layer in the sync route handlers.
+
+---
+
+## ADR-009 — Sync agent uses the same `MCP_API_KEY` as the MCP server
+
+**Date:** 2026-04-30 · Phase 2
+**Decision:** Both the MCP server (Claude clients) and the local sync agent
+authenticate to the platform with the same `Authorization: Bearer
+${MCP_API_KEY}` header.
+
+**Context:** Sync agent is server-to-server (local Node daemon → Vercel),
+not user-facing. Could have its own dedicated key (e.g. `SYNC_API_KEY`).
+
+**Rejected:** Per-component keys. Doubles the rotation surface and gives
+near-zero security benefit when both components run on the same trust
+boundary (Keegan's machine).
+
+**Trade-off:** Compromising the single key means both surfaces are
+exposed. Acceptable at MVP scale. When we go multi-user, both will move
+to per-user issuance and this becomes moot.
+
+---
+
 ## ADR-008 — `create_space` + `create_project` are MCP tools, not just REST
 
 **Date:** 2026-04-30 · Phase 1

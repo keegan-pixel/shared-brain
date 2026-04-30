@@ -1,0 +1,120 @@
+import chokidar from "chokidar";
+import path from "node:path";
+import pLimit from "p-limit";
+import { ApiClient } from "./api.ts";
+import { loadConfig, relPath } from "./config.ts";
+import { syncOne, walkVault, type SyncResult } from "./sync.ts";
+
+type Args = { mode: "once" | "watch"; dryRun: boolean };
+
+function parseArgs(): Args {
+  const args = process.argv.slice(2);
+  const mode = args.find((a) => a.startsWith("--mode="))?.split("=")[1] ?? "once";
+  if (mode !== "once" && mode !== "watch") {
+    throw new Error(`--mode must be "once" or "watch", got "${mode}"`);
+  }
+  const dryRun = args.includes("--dry-run");
+  return { mode, dryRun };
+}
+
+function fmt(absPath: string, vaultRoot: string, res: SyncResult): string {
+  const rel = relPath(absPath, vaultRoot);
+  if (!res.ok) return `✗ ${rel} — ${res.error}`;
+  if (res.action === "ignored") return `· ${rel} (${res.reason})`;
+  if (res.action === "skipped") return `= ${rel} (unchanged)`;
+  return `✓ ${rel} (${res.action}${res.reason ? `: ${res.reason}` : ""})`;
+}
+
+async function fullScan(args: Args) {
+  const cfg = loadConfig();
+  const api = new ApiClient(cfg);
+  console.log(
+    `[sync] full scan${args.dryRun ? " (dry-run)" : ""}: ${cfg.vaultRoot}\n` +
+      `[sync] include: ${cfg.includePrefixes.join(", ")}\n` +
+      `[sync] api: ${cfg.apiBase}`,
+  );
+
+  const files = await walkVault(cfg);
+  console.log(`[sync] found ${files.length} markdown files in included paths`);
+
+  const limit = pLimit(cfg.concurrency);
+  let done = 0;
+  const stats = { ok: 0, ignored: 0, skipped: 0, error: 0 };
+
+  await Promise.all(
+    files.map((file) =>
+      limit(async () => {
+        const res = await syncOne(file, cfg, api, { dryRun: args.dryRun });
+        done++;
+        if (!res.ok) stats.error++;
+        else if (res.action === "ignored") stats.ignored++;
+        else if (res.action === "skipped") stats.skipped++;
+        else stats.ok++;
+        // Suppress ignored noise unless verbose; print everything else.
+        const interesting = !res.ok || (res.ok && res.action !== "ignored");
+        if (interesting) {
+          console.log(`[${done}/${files.length}] ${fmt(file, cfg.vaultRoot, res)}`);
+        }
+      }),
+    ),
+  );
+
+  console.log(
+    `[sync] done: ${stats.ok} synced, ${stats.skipped} unchanged, ${stats.ignored} ignored, ${stats.error} errors`,
+  );
+  return { cfg, api, stats };
+}
+
+async function watch(args: Args) {
+  const { cfg, api } = await fullScan(args);
+  if (args.dryRun) {
+    console.log("[sync] dry-run mode → not entering watch loop");
+    return;
+  }
+
+  console.log(`[sync] watching ${cfg.vaultRoot} for changes…`);
+  const watchRoots = cfg.includePrefixes.map((p) => path.join(cfg.vaultRoot, p));
+  const watcher = chokidar.watch(watchRoots, {
+    ignoreInitial: true,
+    ignored: (p) => {
+      const rel = relPath(p, cfg.vaultRoot);
+      return cfg.ignorePrefixes.some((ig) => rel === ig || rel.startsWith(`${ig}/`));
+    },
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+  });
+
+  const handle = (event: string) => async (file: string) => {
+    if (!file.endsWith(".md")) return;
+    const res = await syncOne(file, cfg, api);
+    console.log(`[watch:${event}] ${fmt(file, cfg.vaultRoot, res)}`);
+  };
+
+  watcher
+    .on("add", handle("add"))
+    .on("change", handle("change"))
+    .on("unlink", async (file) => {
+      // For now we don't delete — vault is source-of-truth + we don't want to
+      // accidentally lose data on transient unmounts. Future: soft-delete.
+      console.log(`[watch:unlink] ${relPath(file, cfg.vaultRoot)} (deletion not yet propagated)`);
+    });
+
+  process.on("SIGINT", () => {
+    console.log("[sync] SIGINT received, stopping watcher…");
+    watcher.close().then(() => process.exit(0));
+  });
+  process.on("SIGTERM", () => {
+    watcher.close().then(() => process.exit(0));
+  });
+}
+
+(async () => {
+  const args = parseArgs();
+  try {
+    if (args.mode === "once") await fullScan(args);
+    else await watch(args);
+  } catch (err) {
+    console.error("[sync] fatal:", (err as Error).message);
+    process.exit(1);
+  }
+})();

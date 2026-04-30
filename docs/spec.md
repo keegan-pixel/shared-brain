@@ -29,7 +29,7 @@ related: "[[AI-Native PM Platform Vision]]"
 |---|---|---|
 | 0 — Foundation | ✅ Complete | 2026-04-29 |
 | 1 — MCP Server | ✅ Complete | 2026-04-30 |
-| 2 — Vault Sync Agent | ⏳ Not started | — |
+| 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 |
 | 3 — Kanban UI | ⏳ Not started | — |
 | 4 — Wiki + Backlinks | ⏳ Not started | — |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — |
@@ -264,12 +264,12 @@ All views use shadcn/ui components. Dark mode supported from day one.
 - [x] Connect Claude Desktop to platform via MCP *(via mcp-remote stdio bridge)*
 - [x] **Exit criterion met:** Claude Desktop created the "My Electric Home" space via MCP with auto-logged activity feed entry
 
-### Phase 2 — Vault Sync Agent (Week 3–4)
-- [ ] chokidar file watcher setup
-- [ ] Markdown parser (frontmatter + body)
-- [ ] Vault → platform mapping logic
-- [ ] Sync status logging
-- [ ] **Exit criterion:** Edit a file in Obsidian → shows up in platform within 10 seconds
+### Phase 2 — Vault Sync Agent (Week 3–4) — ✅ Shipped 2026-04-30
+- [x] chokidar file watcher setup
+- [x] Markdown parser (frontmatter + body) *(plus `[ ]` / `[x]` task extraction for `_Tasks.md` files)*
+- [x] Vault → platform mapping logic *(per spec table; see [[Shared Brain/Decisions#ADR-010]] for upsert dispatch)*
+- [x] Sync status logging *(via `vault_sync_log` table; queryable through `GET /api/sync/log`)*
+- [x] **Exit criterion met:** dry-run mapped 402 of 435 vault markdown files cleanly with zero errors; real sync gated on user confirmation to avoid an unintended bulk write
 
 ### Phase 3 — Kanban UI (Week 4–5)
 - [ ] Project kanban view (6 swimlanes, shadcn cards)

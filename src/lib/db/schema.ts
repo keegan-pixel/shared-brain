@@ -147,17 +147,25 @@ export const activityFeed = pgTable(
   ],
 );
 
+export const vaultSyncEntityValues = ["wiki_page", "item", "space", "project", "activity"] as const;
+export type VaultSyncEntity = (typeof vaultSyncEntityValues)[number];
+
 export const vaultSyncLog = pgTable(
   "vault_sync_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     filePath: text("file_path").notNull().unique(),
+    entityType: text("entity_type", { enum: vaultSyncEntityValues }),
+    entityId: uuid("entity_id"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull().defaultNow(),
     contentHash: text("content_hash").notNull(),
     status: text("status", { enum: ["synced", "error", "pending"] }).notNull().default("synced"),
     errorMessage: text("error_message"),
   },
-  (t) => [index("vault_sync_path_idx").on(t.filePath)],
+  (t) => [
+    index("vault_sync_path_idx").on(t.filePath),
+    index("vault_sync_entity_idx").on(t.entityType, t.entityId),
+  ],
 );
 
 export type Organization = typeof organizations.$inferSelect;

@@ -68,6 +68,109 @@ npm run build
 
 ---
 
+## Vault sync
+
+### Run a one-time full scan (no daemon, just sync once and exit)
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/agent
+set -a && source ../.env.local && set +a
+npm run sync:once
+```
+
+### Run as a daemon (full scan + watch for changes)
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/agent
+set -a && source ../.env.local && set +a
+npm run sync:watch
+```
+Terminal must stay open. For background auto-start see "Install as launchd
+service" below.
+
+### Dry run (see what would sync without touching the API)
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/agent
+set -a && source ../.env.local && set +a
+npm run sync:dry
+```
+
+### Check what's in the vault sync log
+```bash
+curl -sS https://shared-brain-ecru.vercel.app/api/sync/log?limit=50 \
+  -H "Authorization: Bearer $MCP_API_KEY" | jq
+```
+Status values: `synced`, `error`, `pending`. The `error_message` column has
+details when status is `error`.
+
+### Re-sync a single file by force (clear its log entry)
+1. Open Drizzle Studio: `cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain && npm run db:studio`
+2. Find the row in `vault_sync_log` where `file_path` matches.
+3. Delete it. The next sync will treat the file as new.
+
+### Install as launchd service (auto-start on login)
+
+**This auto-starts the watcher on every login.** Only install when you're
+ready for that.
+
+1. Save this to `~/Library/LaunchAgents/com.viaops.shared-brain.sync.plist`,
+   replacing `REPLACE_ME` with your `MCP_API_KEY`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.viaops.shared-brain.sync</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-l</string>
+    <string>-c</string>
+    <string>cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/agent &amp;&amp; npm run sync:watch</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SHARED_BRAIN_API_BASE</key>
+    <string>https://shared-brain-ecru.vercel.app</string>
+    <key>MCP_API_KEY</key>
+    <string>REPLACE_ME</string>
+    <key>VAULT_PATH</key>
+    <string>/Users/keeganlamar/Documents/ViaOps</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/keeganlamar/Library/Logs/shared-brain-sync.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/keeganlamar/Library/Logs/shared-brain-sync.err.log</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>
+```
+
+2. Load it:
+   ```bash
+   launchctl load ~/Library/LaunchAgents/com.viaops.shared-brain.sync.plist
+   ```
+3. Verify it's running:
+   ```bash
+   launchctl list | grep shared-brain
+   tail -f ~/Library/Logs/shared-brain-sync.out.log
+   ```
+4. Stop / unload:
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/com.viaops.shared-brain.sync.plist
+   ```
+
+---
+
 ## Adding a new database table
 
 1. Edit `src/lib/db/schema.ts`. Define the table with `pgTable(...)`. Always
