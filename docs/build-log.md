@@ -195,15 +195,55 @@ why. Updated at the end of each phase.
 
 ## Open issues / followups
 
-- **Sidebar links to a 404 if the user creates a space whose page hasn't
-  built yet** — fixed in Phase 1 by adding interim space/project pages.
+### Resolved
+- ~~Sidebar links to a 404 if the user creates a space whose page hasn't
+  built yet~~ — fixed in Phase 1 by adding interim space/project pages.
+- ~~`/wiki` 404'd~~ — fixed post-Phase 2 by adding interim wiki list +
+  detail pages with markdown rendering, then upgraded to a folder-tree
+  view based on `metadata.filePath`.
+
+### Active design questions
+These each live as `decision`-type items inside the `ViaOps Internal →
+Shared Brain` project on the platform itself (dogfooding). Update both
+places when one is resolved.
+
+- **Wiki hierarchy strategy** — current tree-from-filePath is the cheap
+  interim. Phase 4 picks the long-term: filesystem mirror vs. tag
+  groups vs. hybrid vs. AI-curated. Sidebar restructure ("Wiki" stays
+  as one entry vs. splits into Knowledge / Pipeline / Clients) depends
+  on this answer.
+- **AI-native UI create-flow ripple effects** — before we add UI buttons
+  for creating spaces / projects / items / wiki pages, we need a design
+  for vault drift, auto-fill policy ("you made a space, want me to
+  scaffold projects?"), and rollback. Until then, all creates flow
+  through MCP or vault sync only.
+- **Homepage as personal dashboard** — see [[Dashboard Vision]]. The
+  current Phase-0-text homepage is a placeholder until post-Phase 5
+  when activity feed + built-in Claude exist as data sources.
+
+### Operational followups
 - **Spec at `~/Documents/ViaOps/Knowledge/Frameworks/AI-Native PM Platform - MVP Spec.md`
-  is referenced from the repo README via absolute path** — should be
-  copy-synced into the repo by Phase 2's vault sync agent. For now, both
-  vault and repo have copies that we update manually.
-- **Single shared `MCP_API_KEY`** — fine for solo, but per-client keys are
-  needed before sharing with other humans. Open question: do we issue keys
-  via a `/settings/mcp` UI or via MCP-OAuth dynamic client registration?
+  is referenced from the repo README via absolute path** — fixed by the
+  vault sync mirror; both vault and repo `docs/` now hold copies.
+- **Single shared `MCP_API_KEY`** — fine for solo, but per-client keys
+  are needed before sharing with other humans. Open question: issue
+  keys via a `/settings/mcp` UI or via MCP-OAuth dynamic client
+  registration?
+- **Repo bloat from one bad commit** — git history contains
+  `agent/node_modules` from commit `9cbf338` (~534k extra lines).
+  Cosmetic; doesn't affect working tree. Clean up with
+  `git filter-repo` + force-push if the repo size ever bothers us.
+
+### End-of-phase checklist (the rule)
+At the end of every phase, before declaring it shipped:
+1. ✅ All sidebar / topbar / page links resolve (no 404s)
+2. ✅ Build Log status table updated
+3. ✅ Any new ADRs added to Decisions
+4. ✅ Runbook gains any new ops procedures
+5. ✅ Spec checkboxes ticked + divergences linked to ADRs
+6. ✅ docs/ in repo mirrors vault canonical
+7. ✅ Phase task on the platform moved to `completed`
+8. ✅ Followups added here for anything punted
 
 ---
 

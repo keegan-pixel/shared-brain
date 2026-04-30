@@ -25,6 +25,15 @@ export default async function WikiPage({ params }: Props) {
     frontmatter?: Record<string, unknown>;
   } | null) ?? null;
 
+  // Build an Obsidian deep link if we know the source path. Format:
+  //   obsidian://open?vault=<vault-name>&file=<vault-relative-path-without-extension>
+  const VAULT_NAME = "ViaOps";
+  const obsidianHref = meta?.filePath
+    ? `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(
+        meta.filePath.replace(/\.md$/, ""),
+      )}`
+    : null;
+
   // Strip Obsidian-style frontmatter if it sneaked into the body — gray-matter
   // already removed it on the way in, but be defensive on legacy rows.
   const body = page.content.replace(/^---[\s\S]*?---\s*/m, "");
@@ -36,9 +45,24 @@ export default async function WikiPage({ params }: Props) {
           ← Wiki
         </Link>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">{page.title}</h1>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
           <span>Updated {new Date(page.updatedAt).toLocaleString()}</span>
-          {meta?.filePath && <span>· {meta.filePath}</span>}
+          {meta?.filePath && (
+            <>
+              <span>·</span>
+              {obsidianHref ? (
+                <a
+                  href={obsidianHref}
+                  className="underline-offset-2 hover:text-[hsl(var(--foreground))] hover:underline"
+                  title="Open in Obsidian"
+                >
+                  {meta.filePath}
+                </a>
+              ) : (
+                <span>{meta.filePath}</span>
+              )}
+            </>
+          )}
           {meta?.tags?.map((t) => (
             <span
               key={t}
