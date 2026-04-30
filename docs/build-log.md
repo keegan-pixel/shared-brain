@@ -27,7 +27,8 @@ why. Updated at the end of each phase.
 | 1 — MCP Server | ✅ Complete | 2026-04-30 | All read + write tools live, Claude Desktop connected |
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 | Local agent + platform sync API; full vault scan dry-run clean (402 files mapped) |
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 | dnd-kit drag-and-drop, quick-add per column, detail drawer, 3s polling for AI/sync changes |
-| 4 — Wiki + Backlinks | ⏳ Not started | — | Folder-tree wiki shipped in interim post-Phase 2 |
+| 4a — Connection graph foundations | ✅ Complete | 2026-04-30 | Schema extension, write-time + read-time edge extraction, panel UI, inline `[[wikilink]]` rendering |
+| 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
 
 **Live URLs:**
@@ -70,6 +71,85 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 4a — Connection Graph Foundations
+
+**Shipped:** 2026-04-30
+**Spec target:** Week 5–6 (Phase 4 split into 4a + 4b)
+
+### What was built
+
+**Connection model:** Each entity (wiki page or item) carries a graph of
+edges to other entities. Six edge kinds shipped, three deferred to 4b:
+
+| Kind | When computed | UI badge |
+|---|---|---|
+| `explicit_link` ([[wikilinks]]) | At write time, persisted | direction arrow |
+| `frontmatter_related` (YAML `related:`) | At write time, persisted | direction arrow |
+| `tag_overlap` | At read time | shared tags |
+| `folder_sibling` | At read time | folder path |
+| `semantic_similar` (pgvector cosine) | At read time | similarity % |
+| `hierarchy` (project↔space, item↔project) | Implicit, free | — |
+| `keyword_overlap` | 4b, background cron | — |
+| `co_mention` | 4b, on radar | — |
+| `ai_suggested` | 4b, on radar | — |
+
+**Schema (migration 0002):**
+- `backlinks.kind`, `backlinks.score` (real, nullable), `backlinks.evidence` (jsonb)
+- `BacklinkEntity` extended to include `space`, `project`, `activity`
+
+**Extraction (write paths):** `[[Page Title]]` regex + frontmatter
+`related:` parser. Wired into:
+- `/api/sync/wiki` (vault sync)
+- `/api/sync/item` (vault sync, parses task title + content)
+- `/api/items` POST + `/api/items/[id]` PATCH (REST)
+- MCP `create_item`, `update_item`, `create_wiki_page`, `update_wiki_page`
+
+Resolver matches by **page title, filename basename, and full vault path
+without `.md`** (Obsidian-compatible — `[[Build Log]]` resolves to the
+file `Shared Brain/Build Log.md` even though its H1 title is
+`Shared Brain — Build Log`). Self-links and unresolved targets are skipped.
+
+**Read endpoint (`GET /api/connections?type=...&id=...`):** Returns
+all edges for an entity, deduped (explicit > tag > folder > semantic),
+with target titles and contexts. Org-scoped via `assertInOrg`.
+
+**UI panel (`<ConnectionsPanel>`):** Sectioned by edge kind, with
+explainability badges (shared tag names, similarity %, etc.). Wired into:
+- `/wiki/[id]` — right-side sidebar (lg+ breakpoints)
+- Item detail drawer (kanban) — appears below the content textarea
+
+**Inline rendering:** `[[Page Title]]` in markdown bodies pre-rendered to
+real `/wiki/<id>` links before `react-markdown` sees them. Unresolved
+references render as italic text with a `⟂` glyph so they're visible
+without 404'ing.
+
+**Backfill script:** `npm run backfill:connections` reindexes every wiki
+page and item across all orgs. Run once after migration. Re-running is
+safe (delete + insert).
+
+### Divergences from spec
+- **Phase 4 split into 4a + 4b** — spec had wiki + backlinks as one phase,
+  but the backlink graph is rich enough that the deterministic edges
+  warrant their own ship. Background AI edges (keyword overlap, AI
+  suggestions) become 4b once 4a stabilizes.
+- **Filename-basename matching beyond title matching** — Obsidian users
+  reference pages by filename, not by H1 title. Resolver handles both
+  + intermediate path forms. Documented in [[Decisions#ADR-013]].
+
+### Verification
+- Backfill on the 13 existing surgical-sync wiki pages: cross-references
+  among Build Log / Decisions / Runbook all resolve (3 each). Unresolved
+  references (e.g. `[[AI-Native PM Platform Vision]]`) belong to pages
+  outside the surgical-sync subset and will resolve when full sync runs.
+- Typecheck + production build clean.
+
+### Friction encountered
+- First backfill ran with title-only matching — 0 resolved. Real Obsidian
+  links use filenames. Fixed resolver to match against title, basename,
+  and full path. Documented as ADR.
 
 ---
 

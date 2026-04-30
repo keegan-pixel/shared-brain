@@ -20,6 +20,34 @@ Newest at the top.
 
 ---
 
+## ADR-013 — Wikilink resolver matches by filename basename, not just title
+
+**Date:** 2026-04-30 · Phase 4a
+**Decision:** When resolving `[[Page Title]]` references during link
+extraction, the resolver checks each wiki page against three candidate
+keys: page title, filename basename (no `.md`), and full vault path
+(no `.md`). All case-insensitive.
+
+**Context:** Obsidian users write `[[Build Log]]` referring to the file
+`Build Log.md` regardless of the H1 inside the file. Our wiki pages
+have H1-derived titles like `Shared Brain — Build Log` that don't
+match. First backfill resolved 0 of dozens of wikilinks because of this
+mismatch.
+
+**Rejected:**
+- Title-only matching — wrong for Obsidian; doesn't match user
+  expectation.
+- Filename-only matching — would miss MCP-created pages that have no
+  `metadata.filePath`.
+
+**Trade-off:** A title may collide with a different page's basename in
+unusual setups (e.g., title "Build Log" while another file is named
+`Build Log.md`). First-match-wins ordering is title → basename → path,
+so the most specific keys take priority. If collisions become a real
+problem we can introduce explicit aliases in frontmatter.
+
+---
+
 ## ADR-012 — 3-second polling for real-time kanban (not SSE) for now
 
 **Date:** 2026-04-30 · Phase 3

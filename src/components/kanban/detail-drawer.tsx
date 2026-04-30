@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet";
+import { ConnectionsPanel } from "@/components/connections-panel";
 import { STATUS_LABELS, STATUS_ORDER, type Item, type ItemStatus, type ItemType } from "./types";
 
 const TYPES: ItemType[] = ["task", "note", "file", "decision"];
@@ -142,6 +143,13 @@ export function ItemDetailDrawer({
             {error}
           </div>
         )}
+
+        <div>
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+            Connections
+          </h3>
+          <ConnectionsPanel type="item" id={item.id} />
+        </div>
       </SheetBody>
       <SheetFooter>
         {confirmDelete ? (

@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { items, itemStatusValues, itemTypeValues, projects, spaces } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
 import { ApiError, handle, parseJson } from "@/lib/api";
+import { indexEntityLinks } from "@/lib/connections/extract";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,6 +43,16 @@ export const PATCH = handle(async (req: Request, ctx: Ctx) => {
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(items.id, id))
     .returning();
+
+  // Re-index links if title or content changed (cheap to always re-run).
+  if (patch.title !== undefined || patch.content !== undefined) {
+    const org = await ensureUserOrg();
+    await indexEntityLinks({
+      orgId: org.id,
+      source: { type: "item", id: updated.id },
+      body: `${updated.title}\n\n${updated.content ?? ""}`,
+    });
+  }
   return NextResponse.json({ item: updated });
 });
 

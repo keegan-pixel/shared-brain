@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { items, itemStatusValues, itemTypeValues, projects, spaces } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
 import { ApiError, handle, parseJson } from "@/lib/api";
+import { indexEntityLinks } from "@/lib/connections/extract";
 
 async function assertProjectInOrg(projectId: string) {
   const org = await ensureUserOrg();
@@ -60,5 +61,13 @@ export const POST = handle(async (req: Request) => {
       createdByAgent: body.createdByAgent ?? "user",
     })
     .returning();
+
+  const org = await ensureUserOrg();
+  await indexEntityLinks({
+    orgId: org.id,
+    source: { type: "item", id: created.id },
+    body: `${created.title}\n\n${created.content ?? ""}`,
+  });
+
   return NextResponse.json({ item: created }, { status: 201 });
 });

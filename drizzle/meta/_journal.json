@@ -15,6 +15,13 @@
       "when": 1777563421773,
       "tag": "0001_flawless_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777585536507,
+      "tag": "0002_clear_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

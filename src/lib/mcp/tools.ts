@@ -15,6 +15,7 @@ import {
   wikiPages,
 } from "@/lib/db/schema";
 import { logActivity } from "@/lib/activity";
+import { indexEntityLinks } from "@/lib/connections/extract";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
 import type { McpContext } from "./context";
 
@@ -273,6 +274,11 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         summary: `Created ${type} "${title}"`,
         metadata: { projectId: project_id, status: created.status },
       });
+      await indexEntityLinks({
+        orgId: ctx.orgId,
+        source: { type: "item", id: created.id },
+        body: `${title}\n\n${content ?? ""}`,
+      });
       return ok({ item: created });
     },
   );
@@ -303,6 +309,13 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         summary: `Updated "${updated.title}"`,
         metadata: { changed: Object.keys(patch), previousStatus: before.status },
       });
+      if (patch.title !== undefined || patch.content !== undefined) {
+        await indexEntityLinks({
+          orgId: ctx.orgId,
+          source: { type: "item", id: updated.id },
+          body: `${updated.title}\n\n${updated.content ?? ""}`,
+        });
+      }
       return ok({ item: updated });
     },
   );
@@ -353,6 +366,11 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         entityId: created.id,
         summary: `Created wiki page "${title}"`,
       });
+      await indexEntityLinks({
+        orgId: ctx.orgId,
+        source: { type: "wiki_page", id: created.id },
+        body: content,
+      });
       return ok({ page: created });
     },
   );
@@ -382,6 +400,11 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         entityType: "wiki_page",
         entityId: page_id,
         summary: `Updated wiki page "${updated.title}"`,
+      });
+      await indexEntityLinks({
+        orgId: ctx.orgId,
+        source: { type: "wiki_page", id: page_id },
+        body: content,
       });
       return ok({ page: updated });
     },

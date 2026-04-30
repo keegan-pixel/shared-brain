@@ -31,7 +31,8 @@ related: "[[AI-Native PM Platform Vision]]"
 | 1 — MCP Server | ✅ Complete | 2026-04-30 |
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 |
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 |
-| 4 — Wiki + Backlinks | ⏳ Not started | — |
+| 4a — Connection Graph Foundations | ✅ Complete | 2026-04-30 |
+| 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — |
 
 ---
@@ -277,11 +278,11 @@ All views use shadcn/ui components. Dark mode supported from day one.
 - [x] Card detail view *(slide-out drawer instead of modal — see [[Shared Brain/Build Log#Phase 3 — Kanban UI]] divergence note)*
 - [x] AI-triggered status updates via MCP reflected in real time *(via 3s polling — see [[Shared Brain/Decisions#ADR-012]] for the polling-vs-SSE choice)*
 
-### Phase 4 — Wiki + Backlinks (Week 5–6)
-- [ ] Wiki page view + directory
-- [ ] Markdown renderer
-- [ ] Backlink engine (auto-generated from content, shown in sidebar)
-- [ ] Wiki sync from vault (`Knowledge/` + `Pipeline/` folders)
+### Phase 4 — Wiki + Backlinks (Week 5–6) — split into 4a (✅ Shipped 2026-04-30) and 4b (queued)
+- [x] Wiki page view + directory *(Phase 2 + tree view post-Phase 2)*
+- [x] Markdown renderer *(react-markdown + remark-gfm; inline `[[wikilink]]` resolution shipped in 4a)*
+- [x] **Backlink engine — Phase 4a** *(deterministic edges: explicit_link, frontmatter_related, tag_overlap, folder_sibling, semantic_similar, hierarchy. Phase 4b adds keyword_overlap, co_mention, ai_suggested via background cron — see [[Shared Brain/Decisions#ADR-013]])*
+- [x] Wiki sync from vault (`Knowledge/` + `Pipeline/` folders) *(Phase 2)*
 
 ### Phase 5 — Activity Feed + Built-in Claude (Week 6–7)
 - [ ] Activity feed (global + per-space, filterable)

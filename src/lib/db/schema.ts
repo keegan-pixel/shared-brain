@@ -7,6 +7,7 @@ import {
   jsonb,
   index,
   customType,
+  real,
 } from "drizzle-orm/pg-core";
 
 const vector = customType<{ data: number[]; driverData: string }>({
@@ -107,8 +108,31 @@ export const wikiPages = pgTable(
   (t) => [index("wiki_pages_org_id_idx").on(t.orgId)],
 );
 
-export const backlinkEntityValues = ["item", "wiki_page"] as const;
+export const backlinkEntityValues = [
+  "wiki_page",
+  "item",
+  "space",
+  "project",
+  "activity",
+] as const;
 export type BacklinkEntity = (typeof backlinkEntityValues)[number];
+
+/**
+ * Kinds of connection edges. Cheap deterministic kinds are computed at write
+ * time; fuzzy ones (semantic, ai) live in the same table with a score.
+ */
+export const backlinkKindValues = [
+  "explicit_link", // [[Page Title]] in markdown
+  "frontmatter_related", // related: field in YAML frontmatter
+  "tag_overlap", // shared tags (computed at read time, may also be cached)
+  "folder_sibling", // same parent dir in metadata.filePath
+  "semantic_similar", // pgvector cosine similarity
+  "keyword_overlap", // extracted keyword/topic overlap (background)
+  "hierarchy", // parent-child structure (project→space, item→project, etc.)
+  "co_mention", // mentioned in same meeting / daily note
+  "ai_suggested", // AI-asserted relationship
+] as const;
+export type BacklinkKind = (typeof backlinkKindValues)[number];
 
 export const backlinks = pgTable(
   "backlinks",
@@ -118,11 +142,17 @@ export const backlinks = pgTable(
     sourceId: uuid("source_id").notNull(),
     targetType: text("target_type", { enum: backlinkEntityValues }).notNull(),
     targetId: uuid("target_id").notNull(),
+    kind: text("kind", { enum: backlinkKindValues }).notNull().default("explicit_link"),
+    /** 0.0–1.0 confidence/similarity for fuzzy edges; null for deterministic ones. */
+    score: real("score"),
+    /** Why this edge exists — depends on kind. e.g. {tags: ["ai"]} for tag_overlap. */
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("backlinks_source_idx").on(t.sourceType, t.sourceId),
     index("backlinks_target_idx").on(t.targetType, t.targetId),
+    index("backlinks_kind_idx").on(t.kind),
   ],
 );
 

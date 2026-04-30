@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { items, itemStatusValues, itemTypeValues, projects, spaces, vaultSyncLog } from "@/lib/db/schema";
 import { ApiError, handle, parseJson } from "@/lib/api";
 import { logActivity } from "@/lib/activity";
+import { indexEntityLinks } from "@/lib/connections/extract";
 import { SYNC_ACTOR, resolveSyncOrg } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 
@@ -100,6 +101,13 @@ export const POST = handle(async (req: Request) => {
     entityId: itemId,
     summary: `${action === "created" ? "Created" : "Updated"} task "${body.title}" from ${body.filePath}`,
     metadata: { filePath: body.filePath, status: body.status },
+  });
+
+  // Index any [[wikilinks]] that appear in the item title or content.
+  await indexEntityLinks({
+    orgId,
+    source: { type: "item", id: itemId },
+    body: `${body.title}\n\n${body.content ?? ""}`,
   });
 
   return NextResponse.json({ ok: true, itemId, action });

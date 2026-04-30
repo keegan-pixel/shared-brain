@@ -6,6 +6,7 @@ import { vaultSyncLog, wikiPages } from "@/lib/db/schema";
 import { handle, parseJson } from "@/lib/api";
 import { embed } from "@/lib/embeddings";
 import { logActivity } from "@/lib/activity";
+import { indexEntityLinks } from "@/lib/connections/extract";
 import { SYNC_ACTOR, resolveSyncOrg } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 
@@ -99,6 +100,14 @@ export const POST = handle(async (req: Request) => {
     entityId: pageId,
     summary: `${logRow ? "Updated" : "Created"} wiki page "${body.title}" from ${body.filePath}`,
     metadata: { filePath: body.filePath },
+  });
+
+  // Recompute write-time edges for this page.
+  await indexEntityLinks({
+    orgId,
+    source: { type: "wiki_page", id: pageId },
+    body: body.content,
+    frontmatter: body.frontmatter,
   });
 
   return NextResponse.json({ ok: true, pageId, action: logRow ? "updated" : "created" });
