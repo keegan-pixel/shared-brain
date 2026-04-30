@@ -237,31 +237,61 @@ resolution.
 - Deleted root `docs/` folder (a single Next.js stub file —
   `app/getting-started/server-and-client-components.md`, vestigial).
 
-### ⚠️ `ViaOps Assistant/` — DO NOT DELETE without further review
-The original audit called this a "shadow copy of `Assistant/`." A direct
-diff during Phase B execution revealed it is **not** a shadow copy:
+### ✅ `ViaOps Assistant/` reconciliation — done 2026-04-30
+File-by-file diff against canonical locations revealed the folder was
+99% duplicates / subsets. Outcome:
 
-- `Assistant/` is 2 files (March, untouched) — a tiny entry stub
-- `ViaOps Assistant/` is 15 entries actively edited through April 20,
-  including unique-to-it content:
-  - `Claude Code - Composio Migration Prompt.md`
-  - `Claude Code Routines - Research Brief.md`
-  - `build_invoice.py` + `invoice-generator-SKILL.md` + `invoice-generator.skill`
-  - Subfolders `Admin/`, `Client Builds/`, `Clients/`, `Pipeline/`,
-    `Plugins/`, `SimHouse/`, `Skills/`
-- Skill files in `ViaOps Assistant/Skills/` differ from those in root
-  `Skills/` (older — April 8 vs root April 17). Root is canonical/newer.
-- `ViaOps Assistant/Client Builds/` mirrors `Clients/XP Flow/Builds/`
-  but with potentially different contents per file.
+- **Pure duplicates deleted** (verified identical to root):
+  - `.DS_Store` files, `Pipeline/Kyle LaMar/`, `Pipeline/Todd Grasley/`
+  - `Plugins/*.plugin` files (root identical, plus root has the moved
+    vault-tools/vault-update plugins)
+  - `Skills/` (older April 8 versions; root April 17 wins)
+  - `Clients/My Electric Home/`, `Clients/XP Flow/Deliverables/`,
+    `Clients/XP Flow/Invoices/` (all subsets of canonical)
+  - `Client Builds/<7 staff folders>` (subsets of canonical
+    `Clients/XP Flow/Builds/`)
+  - `Client Builds/Auto-Approve Setup — Paste Into Claude Code.md`
+    (identical to `Admin/Auto-Approve Setup...`)
+  - `Admin/` subfolder (subset of root `Admin/`)
+  - `SimHouse/UAT & QA/` (subset of root `SimHouse.io/UAT & QA/`)
+  - `SimHouse/Diagrams/` (identical to root `SimHouse.io/Diagrams/`)
+  - `Plugins/discord-mcp-server/` (Composio Discord connection
+    confirmed active, account `keegan5333` — standalone MCP redundant)
+  - Top-level `invoice-generator.skill` (identical to root)
+  - Top-level `Claude Code - Composio Migration Prompt.md` and
+    `Claude Code Routines - Research Brief.md` (identical to root
+    `Admin/` versions)
+  - `Clients/Jason Webb — Solomon's Edge/` (already deleted from root
+    earlier; this was its mirror)
 
-**Recommendation for next pass:** treat `ViaOps Assistant/` as a separate
-workspace that needs targeted reconciliation, not blanket deletion. For
-each subfolder, decide: merge into canonical location, archive
-separately, or delete after confirming no unique content. Best done
-file-by-file with Keegan present.
+- **Truly unique content — moved to canonical homes:**
+  - `build_invoice.py` → `Skills/invoice-generator-source/`
+  - `invoice-generator-SKILL.md` → `Skills/invoice-generator-source/`
+  - Plus a new `README.md` in that folder explaining the source / bundle
+    relationship for future maintainers
 
-### Phase C — once Phase B is clean
-- Run full vault sync (`npm run sync:once`) to populate the platform
+- **Folder removed:** `ViaOps Assistant/` deleted (78M reclaimed,
+  4,025 files removed).
+
+### ✅ Local file structure now clean
+Vault root contains the canonical 17 directories + index files:
+- `Admin/`, `Assistant/`, `Clients/`, `Coaching/`, `Dashboard/`,
+  `Knowledge/`, `LinkedIn/`, `Meetings/`, `Partners/`, `Personal/`,
+  `Pipeline/`, `Plugins/`, `Projects/`, `SimHouse.io/`, `Skills/`,
+  `Website/`, plus `CLAUDE.md` and `__search-index.md`.
+
+**Total reclaimed across Phase A + B + reconciliation: ~700M, 4,500+ files.**
+
+### ✅ Jake Leskovar duplicate consolidated
+`Clients/XP Flow/Jake Leskovar/` (sibling) deleted; canonical is now
+`Clients/XP Flow/Builds/Jake Leskovar - XP Flow/`. Files were
+identical except for one empty `Meetings/` subfolder which is gone.
+
+### Phase C — ready to run
+- Run full vault sync (`npm run sync:once`) to populate the platform —
+  vault is now clean, no exclusions needed beyond the existing
+  `Archive/`, `Plugins/`, `Projects/shared-brain/` ignores
 - Re-run `npm run backfill:connections` to rebuild edges across the
-  newly-synced content
+  newly-synced content (will resolve the `[[wikilinks]]` that pointed at
+  pages outside the surgical-sync subset)
 - Phase 5 work (activity feed UI + built-in Claude chat) starts
