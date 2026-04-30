@@ -17,6 +17,12 @@ const vector = customType<{ data: number[]; driverData: string }>({
   toDriver(value: number[]) {
     return `[${value.join(",")}]`;
   },
+  // Postgres returns vectors as strings like "[0.12,-0.34,...]". Without
+  // this, callers get the raw string and fail when they expect an array.
+  fromDriver(value: string): number[] {
+    if (!value) return [];
+    return value.replace(/^\[|\]$/g, "").split(",").map(Number);
+  },
 });
 
 export const organizations = pgTable("organizations", {

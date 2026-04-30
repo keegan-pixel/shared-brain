@@ -67,7 +67,7 @@ function FolderBlock({ node, depth }: { node: TreeNode; depth: number }) {
         className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-[hsl(var(--accent))]"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open/folder:rotate-90" />
+        <ChevronRight className="tree-chevron h-3.5 w-3.5 shrink-0 transition-transform" />
         <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
         <span>{node.name}</span>
         <span className="ml-auto text-xs text-[hsl(var(--muted-foreground))]">
@@ -160,7 +160,7 @@ export default async function WikiIndex() {
           {orphans.length > 0 && (
             <details open className="group/folder">
               <summary className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-[hsl(var(--accent))]">
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open/folder:rotate-90" />
+                <ChevronRight className="tree-chevron h-3.5 w-3.5 shrink-0 transition-transform" />
                 <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
                 <span>Created in platform</span>
                 <span className="ml-auto text-xs text-[hsl(var(--muted-foreground))]">

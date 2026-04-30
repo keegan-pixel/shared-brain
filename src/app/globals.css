@@ -103,3 +103,10 @@ body {
 .markdown-body th { background: hsl(var(--muted)); font-weight: 600; }
 .markdown-body hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.5rem 0; }
 .markdown-body input[type="checkbox"] { margin-right: 0.4rem; }
+
+/* Wiki folder tree: rotate chevron when its own <details> is open. Using a
+   direct CSS selector instead of Tailwind's group-open variant because nested
+   <details> with the same group name confuse the variant. */
+details[open] > summary > svg.tree-chevron {
+  transform: rotate(90deg);
+}
