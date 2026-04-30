@@ -79,3 +79,27 @@ body {
   color: hsl(var(--foreground));
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+/* Lightweight typography for rendered markdown — enough to be readable until
+   Phase 4 ships a real wiki view. */
+.markdown-body { line-height: 1.6; }
+.markdown-body h1 { font-size: 1.875rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+.markdown-body h2 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid hsl(var(--border)); }
+.markdown-body h3 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.markdown-body h4 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.markdown-body p { margin: 0.75rem 0; }
+.markdown-body ul, .markdown-body ol { margin: 0.5rem 0 0.75rem 1.5rem; }
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body li { margin: 0.25rem 0; }
+.markdown-body li > p { margin: 0.25rem 0; }
+.markdown-body a { color: hsl(var(--primary)); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: hsl(var(--muted)); padding: 0.125rem 0.35rem; border-radius: 0.25rem; font-size: 0.875em; }
+.markdown-body pre { background: hsl(var(--muted)); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.75rem 0; }
+.markdown-body pre code { background: transparent; padding: 0; }
+.markdown-body blockquote { border-left: 3px solid hsl(var(--border)); padding-left: 1rem; color: hsl(var(--muted-foreground)); margin: 0.75rem 0; }
+.markdown-body table { border-collapse: collapse; margin: 0.75rem 0; display: block; overflow-x: auto; }
+.markdown-body th, .markdown-body td { border: 1px solid hsl(var(--border)); padding: 0.4rem 0.6rem; text-align: left; }
+.markdown-body th { background: hsl(var(--muted)); font-weight: 600; }
+.markdown-body hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.5rem 0; }
+.markdown-body input[type="checkbox"] { margin-right: 0.4rem; }
