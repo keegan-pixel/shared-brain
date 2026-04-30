@@ -20,6 +20,40 @@ Newest at the top.
 
 ---
 
+## ADR-012 — 3-second polling for real-time kanban (not SSE) for now
+
+**Date:** 2026-04-30 · Phase 3
+**Decision:** The kanban board polls `GET /api/items?projectId=…` every 3
+seconds (paused while tab is hidden) instead of subscribing to a server-sent
+events stream.
+
+**Context:** Spec says "Real-time strategy → SSE." On Vercel functions in
+multi-instance mode, an SSE subscriber on instance A doesn't receive
+events fired on instance B without a shared message bus (Vercel KV /
+Redis pub/sub, or similar). Building a real bus before there's a real-
+time use case beyond solo dogfooding is over-engineering.
+
+**Rejected:**
+- **Real SSE today** — needs Vercel KV or Redis as a pub/sub bus to be
+  reliable across function instances. Worth doing when team mode lands;
+  premature for solo.
+- **Long-poll** — same complexity as SSE without the simplicity payoff.
+- **No real-time** — fails the spec's Phase 3 "AI-triggered status
+  updates via MCP reflected in real time" exit criterion.
+
+**Trade-off:** 3s polling burns one tiny `GET /api/items` per active
+kanban tab. At solo scale the cost is invisible (a few KB / 3s). At team
+scale the cost becomes meaningful and we'll cut over to SSE + KV. The
+user-visible latency on AI writes is at most one polling interval, which
+is fine for "I asked Claude to move this card" workflows.
+
+**Migration path:** Replace `useEffect` polling in `Board` with an
+`EventSource` subscription pointed at `/api/events` once the pub/sub
+backend exists. Server-side, every write to `items` already calls
+`logActivity`; that's the natural fan-out point.
+
+---
+
 ## ADR-011 — `Archive/` excluded from vault sync by default
 
 **Date:** 2026-04-30 · Phase 2

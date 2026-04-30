@@ -26,8 +26,8 @@ why. Updated at the end of each phase.
 | 0 — Foundation | ✅ Complete | 2026-04-29 | Next.js 16, Neon + pgvector, Clerk, shadcn shell, CRUD API |
 | 1 — MCP Server | ✅ Complete | 2026-04-30 | All read + write tools live, Claude Desktop connected |
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 | Local agent + platform sync API; full vault scan dry-run clean (402 files mapped) |
-| 3 — Kanban UI | ⏳ Not started | — | Interim list view shipped in Phase 1 |
-| 4 — Wiki + Backlinks | ⏳ Not started | — | |
+| 3 — Kanban UI | ✅ Complete | 2026-04-30 | dnd-kit drag-and-drop, quick-add per column, detail drawer, 3s polling for AI/sync changes |
+| 4 — Wiki + Backlinks | ⏳ Not started | — | Folder-tree wiki shipped in interim post-Phase 2 |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
 
 **Live URLs:**
@@ -70,6 +70,68 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 3 — Kanban UI
+
+**Shipped:** 2026-04-30
+**Spec target:** Week 4–5
+
+### What was built
+
+- **Real kanban** at `/projects/[id]` — replaces the Phase 1 interim
+  list-of-6-cards. Six columns (Backlog → Completed), horizontally
+  scrollable.
+- **Drag-and-drop** via `@dnd-kit/core` + `@dnd-kit/sortable`. Drop on
+  a column or another card; status updates optimistically and persists
+  via `PATCH /api/items/[id]`. Reverts on PATCH failure.
+- **Quick-add per column** — `+` button reveals an inline input;
+  Enter → `POST /api/items` with the column's status.
+- **Detail drawer** — clicking a card slides out a right-side sheet
+  with editable title, type, status, content (textarea, markdown
+  supported), plus a guarded delete (two-click confirmation).
+- **3s polling** for AI / sync-driven changes — when an MCP tool or
+  the vault sync agent writes to the same project, the board picks up
+  the change within ~3s without a page reload. Pauses while the tab
+  is hidden.
+- **Type badges** color-code task / note / file / decision so a
+  glance at a column tells you the mix.
+
+### Components added
+- `src/components/ui/sheet.tsx` — minimal slide-out drawer (no radix,
+  no extra deps; backdrop click + Esc close).
+- `src/components/ui/textarea.tsx` — shadcn-style textarea primitive.
+- `src/components/kanban/{board,column,card,detail-drawer,types}.tsx`.
+
+### Divergences from spec
+1. **Polling instead of SSE for real-time** — see [[Decisions#ADR-012]].
+   Solo Vercel multi-instance has SSE delivery edge cases; 3s polling
+   is robust now and indistinguishable from SSE at the user's
+   experience level. SSE moves in when team mode + Vercel KV pub/sub
+   land.
+2. **No "inline AI: add 5 tasks" feature.** Spec mentioned it; that
+   wires into Phase 5's Claude chat panel + Composio. Logged as a
+   followup.
+3. **Drawer instead of modal for detail edit.** Spec said "Card detail
+   view (inline edit)." Slide-out feels lighter and lets users see the
+   board state while editing — closer to Linear / Height than to a
+   modal-heavy tool.
+
+### Verification
+- Typecheck + production build pass clean.
+- All sidebar / topbar / page links resolve (end-of-phase checklist
+  item #1 — verified by grepping every `Link href=` against the
+  generated routes).
+
+### Friction encountered
+- dnd-kit sortable items need stable IDs and a configured pointer
+  sensor activation distance (we use 4px) so click-to-open-drawer
+  doesn't fire accidentally on drag start.
+- Polling clobbering optimistic state during in-flight drags is a
+  theoretical race; current `mergePreservingActiveDrag` just prefers
+  server state. If drag corruption shows up, switch to a more careful
+  diff-merge.
 
 ---
 

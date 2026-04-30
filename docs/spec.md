@@ -30,7 +30,7 @@ related: "[[AI-Native PM Platform Vision]]"
 | 0 — Foundation | ✅ Complete | 2026-04-29 |
 | 1 — MCP Server | ✅ Complete | 2026-04-30 |
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 |
-| 3 — Kanban UI | ⏳ Not started | — |
+| 3 — Kanban UI | ✅ Complete | 2026-04-30 |
 | 4 — Wiki + Backlinks | ⏳ Not started | — |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — |
 
@@ -271,11 +271,11 @@ All views use shadcn/ui components. Dark mode supported from day one.
 - [x] Sync status logging *(via `vault_sync_log` table; queryable through `GET /api/sync/log`)*
 - [x] **Exit criterion met:** dry-run mapped 402 of 435 vault markdown files cleanly with zero errors; real sync gated on user confirmation to avoid an unintended bulk write
 
-### Phase 3 — Kanban UI (Week 4–5)
-- [ ] Project kanban view (6 swimlanes, shadcn cards)
-- [ ] Drag-and-drop (dnd-kit)
-- [ ] Card detail view (inline edit)
-- [ ] AI-triggered status updates via MCP reflected in real time
+### Phase 3 — Kanban UI (Week 4–5) — ✅ Shipped 2026-04-30
+- [x] Project kanban view (6 swimlanes, shadcn cards)
+- [x] Drag-and-drop (dnd-kit)
+- [x] Card detail view *(slide-out drawer instead of modal — see [[Shared Brain/Build Log#Phase 3 — Kanban UI]] divergence note)*
+- [x] AI-triggered status updates via MCP reflected in real time *(via 3s polling — see [[Shared Brain/Decisions#ADR-012]] for the polling-vs-SSE choice)*
 
 ### Phase 4 — Wiki + Backlinks (Week 5–6)
 - [ ] Wiki page view + directory
