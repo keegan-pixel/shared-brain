@@ -37,7 +37,7 @@ why. Updated at the end of each phase.
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 | Vercel AI SDK v6 + claude-sonnet-4-5; 8 platform tools wired in; localStorage persistence; current-page context |
 | 5c — Composio integration | ✅ Complete | 2026-05-01 | Universal MCP endpoint + `x-consumer-api-key` (ADR-020): chat connects to `connect.composio.dev/mcp`, gets the meta-tool surface (SEARCH / EXECUTE / etc.), per-call routing across all 19 accounts |
 | ~~5d — Live artifacts~~ | ❌ Dropped | 2026-05-01 | ADR-022: lookups/actions through nav are faster than chat-rendered duplicates; valuable subset (link previews + action confirmations) already covered by `[[wikilink]]` rendering + tool pills |
-| 6 — Agent Operating Instructions | ⏳ Next up | — | User profile + standing instructions every Claude agent reads at session start; new MCP tools `get_operating_instructions` + `record_session_summary`; CLI install script (ADR-023) |
+| 6 — Agent Operating Instructions | ✅ Complete | 2026-05-01 | Profile.md (13 sections), `get_operating_instructions` + `record_session_summary` MCP+chat tools, `/api/operating-instructions` Bearer-auth endpoint, `npm run install-skill claude` CLI; Assistant/CLAUDE.md now a short pointer (ADR-023). Awaiting Active State + Key People content from Keegan. |
 | 4b — Background AI edges | ⏳ Queued | — | Cron-driven keyword overlap + AI-suggested connections; runs in parallel, no blocking |
 | F4 — Bidirectional ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI · **F4d (NEW): vault pull-down so brain → local Obsidian stays mirrored** (ADR-024) |
 | 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
@@ -86,9 +86,9 @@ why. Updated at the end of each phase.
 
 ---
 
-## Phase 6 — Agent Operating Instructions (NEXT UP)
+## Phase 6 — Agent Operating Instructions
 
-**Target ship:** within next session
+**Shipped:** 2026-05-01
 **Spec target:** new (post-MVP)
 
 ### Why this is the highest-leverage thing left
@@ -122,6 +122,55 @@ Vault sync log + activity feed should show session-summary entries
 landing automatically as Claude agents finish work. If they aren't,
 the standing instructions text needs strengthening or the CLI install
 isn't placing the skill correctly.
+
+### What was actually shipped
+- **Profile.md** — 13 sections (identity, three businesses, Shared
+  Brain platform, standing instructions, Composio routing, default
+  behaviors, triggered workflows, skill invocation guide, quick
+  skill-scan reference, active state TODO, key people TODO,
+  communication style, self-improvement loop). Restructured from
+  `Assistant/CLAUDE.md` + the Cowork lead-agent instructions.
+- **`get_operating_instructions`** — both as an MCP tool
+  (`src/lib/mcp/tools.ts`) for Desktop / Code / Cowork / mobile and
+  as an AI-SDK tool (`src/lib/chat/tools.ts`) for the in-platform
+  chat. Both look up the wiki page titled "Profile" and return its
+  content.
+- **`record_session_summary`** — same dual surface. Creates a
+  session-note wiki page + activity feed entry, with best-effort
+  backlink indexing for `[[refs]]` in the summary.
+- **`/api/operating-instructions`** — Bearer-auth'd HTTP endpoint
+  returning the Profile as plain markdown (or JSON with `?format=json`).
+  Cache headers set to ~60s edge cache so high-frequency pulls don't
+  hammer the DB.
+- **`npm run install-skill claude`** — CLI that verifies the endpoint
+  responds, then writes `~/CLAUDE.md` with a curl-back pointer +
+  hard-coded standing rules (record_session_summary, read-before-
+  write, confirm-before-destructive). Acts as the global fallback
+  CLAUDE.md for any Claude Code / Cowork session.
+- **`Assistant/CLAUDE.md`** — replaced with a short pointer
+  documenting where the canonical instructions now live.
+- **Chat system prompt updates** — now instructs the model to call
+  `get_operating_instructions` before non-trivial tasks and
+  `record_session_summary` before ending sessions.
+
+### Path to actually using it
+1. Profile.md is on the platform. ✅
+2. Run `npm run install-skill claude` once on each device that uses
+   Claude Code / Cowork. (Requires `MCP_API_KEY` in env.)
+3. Open the in-platform chat — first non-trivial prompt should
+   trigger a `get_operating_instructions` call.
+4. After a real work session, model should call
+   `record_session_summary`. If it doesn't, strengthen the wording in
+   the chat route's system prompt.
+
+### What's still TODO (Phase 6 inputs from Keegan)
+- **Section 10 — Active State of the World** — needs current
+  pipeline / clients / projects / pending intros / coaching list.
+- **Section 11 — Key People Quick Reference** — needs current
+  table.
+
+Both currently have explicit TODO markers. Until refreshed, agents
+fall back to platform `search` + `Pipeline/_Index` lookups.
 
 ---
 

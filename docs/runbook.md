@@ -103,6 +103,63 @@ Defined in `src/lib/chat/tools.ts`. To add a new tool:
 
 ---
 
+## Agent Operating Instructions (Phase 6)
+
+The canonical user profile + standing instructions every Claude
+agent reads at session start. Lives at
+`Knowledge/Frameworks/Shared Brain/Profile.md` in the vault, mirrors
+to a wiki page titled "Profile" via vault sync, served live by the
+platform.
+
+### Surfaces for consumption
+- **In-platform chat** — system prompt instructs the model to call
+  `get_operating_instructions` before non-trivial tasks. Tool defined
+  in `src/lib/chat/tools.ts`.
+- **MCP server** — exposes `get_operating_instructions` and
+  `record_session_summary` so Claude Desktop / Code / Cowork / mobile
+  can read the same doc (`src/lib/mcp/tools.ts`).
+- **HTTP endpoint** — `GET /api/operating-instructions` returns the
+  Profile as plain markdown (or JSON with `?format=json`). Bearer-auth
+  with `MCP_API_KEY`. Used by the install-skill CLI.
+
+### Editing the profile
+- Edit `Knowledge/Frameworks/Shared Brain/Profile.md` in Obsidian.
+- Save → vault sync agent pushes the new content to the platform.
+- Next session pulls the updated version automatically.
+
+### Install-skill CLI
+Drops `~/CLAUDE.md` pointing at the live operating-instructions
+endpoint, so any Claude Code / Cowork session inherits the latest
+instructions globally.
+
+```
+cd shared-brain/
+export MCP_API_KEY=...
+npm run install-skill claude
+```
+
+The script verifies the endpoint responds before writing. Re-run
+whenever the endpoint URL or API key changes — the file content
+only updates if URL/key change, since instruction content is fetched
+live each session.
+
+### Recording session summaries
+Standing rule: agents must call `record_session_summary` before
+ending sessions with significant work. Behavior is enforced via the
+operating instructions text and the chat system prompt. To verify
+it's happening, check the activity feed for `session_summary` entries
+or filter by the agent's actor name.
+
+### Drift defense (Phase 6 + future)
+Three layers:
+1. **Operating Instructions** (this phase) — soft enforcement.
+2. **Auto-capture from Composio signals** (Phase F4) — emails sent /
+   meetings / docs created auto-generate brain entries.
+3. **Drift detection cron** (post-Phase 8) — compares Composio
+   activity to brain entries and surfaces gaps.
+
+---
+
 ## External tools via Composio (Phase 5c)
 
 The in-platform chat connects to Composio's **universal MCP endpoint**
