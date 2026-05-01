@@ -43,7 +43,10 @@ export async function syncOne(
   }
 
   // For file_artifact (non-markdown), we never read content into memory.
-  // Hash the path + size + mtime for change detection instead.
+  // Hash the path + size + mtime + blob-availability for change detection.
+  // Including blob:0/1 in the hash means toggling BLOB_READ_WRITE_TOKEN
+  // invalidates cached entries, so prior "metadata-only" syncs get
+  // re-processed with their bytes uploaded.
   const isFileArtifact = mapping.kind === "file_artifact";
 
   let raw = "";
@@ -51,7 +54,10 @@ export async function syncOne(
   if (isFileArtifact) {
     try {
       const stat = await fs.stat(absPath);
-      hash = sha1(`${relative}|${stat.size}|${stat.mtimeMs}`);
+      const blobMarker = isBlobConfigured() ? "1" : "0";
+      // v3: bumped after fixing pdf-parse v2 API usage so all PDFs reprocess
+      // and pick up extracted text.
+      hash = sha1(`v3|${relative}|${stat.size}|${stat.mtimeMs}|blob:${blobMarker}`);
     } catch (err) {
       return { ok: false, error: `stat failed: ${(err as Error).message}` };
     }

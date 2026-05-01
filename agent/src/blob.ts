@@ -19,8 +19,12 @@ export async function uploadFileToBlob(args: {
   const buf = await fs.readFile(args.absPath);
   // Normalize the blob pathname — keep the vault structure for browseability.
   const pathname = args.vaultRelPath.replace(/^\/+/, "");
+  // The Shared Brain blob store is configured for private access — URLs are
+  // served by Vercel's edge with auth, scoped to the project. Files are not
+  // exposed to "anyone with the URL." Better default for invoices, contracts,
+  // and other sensitive artifacts.
   const result = await put(pathname, buf, {
-    access: "public",
+    access: "private",
     contentType: contentTypeFor(args.absPath),
     addRandomSuffix: false,
     allowOverwrite: true,

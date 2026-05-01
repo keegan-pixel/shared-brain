@@ -49,12 +49,15 @@ export async function extractText(absPath: string): Promise<ExtractResult> {
 }
 
 async function extractPdf(absPath: string): Promise<ExtractResult> {
-  // pdf-parse doesn't ship typings ergonomically; require it dynamically.
-  const pdfParseMod = (await import("pdf-parse")) as unknown as {
-    default: (buf: Buffer) => Promise<{ text: string }>;
+  // pdf-parse v2 uses a class-based API: new PDFParse({ data }).getText().
+  const mod = (await import("pdf-parse")) as unknown as {
+    PDFParse: new (opts: { data: Buffer | Uint8Array }) => {
+      getText: () => Promise<{ text: string }>;
+    };
   };
   const buf = await fs.readFile(absPath);
-  const result = await pdfParseMod.default(buf);
+  const parser = new mod.PDFParse({ data: buf });
+  const result = await parser.getText();
   const text = (result.text ?? "").trim();
   return { text: text || null, wordCount: countWords(text), skipReason: null };
 }

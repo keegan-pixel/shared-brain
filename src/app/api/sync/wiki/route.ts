@@ -62,7 +62,15 @@ export const POST = handle(async (req: Request) => {
     content: body.content,
     extractedText: body.extractedText,
   });
-  const embedding = await embed(embeddingInput);
+  // Embeddings are best-effort — never let a bad input vector 500 the whole
+  // sync. We still create/update the page; semantic search just won't hit
+  // this entry until the next successful embed.
+  let embedding: number[] | null = null;
+  try {
+    embedding = await embed(embeddingInput);
+  } catch (err) {
+    console.warn(`[sync] embed failed for ${body.filePath}: ${(err as Error).message}`);
+  }
 
   const metadata = {
     filePath: body.filePath,
