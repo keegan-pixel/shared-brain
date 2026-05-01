@@ -20,6 +20,38 @@ Newest at the top.
 
 ---
 
+## ADR-018 — Composio over MCP URL, not the `@composio/core` SDK
+
+**Date:** 2026-05-01 · Phase 5c
+**Decision:** The chat connects to Composio via a single `COMPOSIO_MCP_URL`
+using `@modelcontextprotocol/sdk`'s `Client` + `StreamableHTTPClientTransport`,
+and adapts each MCP tool into an AI SDK `dynamicTool`. We removed
+`@composio/core` and `@composio/vercel`.
+
+**Context:** Composio offers two surfaces:
+1. SDK (`@composio/core`) — `composio.tools.get(userId, { toolkits: [...] })`.
+   Each connected account has its own user ID; you have to enumerate them
+   to expose multiple Gmail / Calendar / Drive accounts to the chat.
+2. MCP URL — one URL per Composio user that bundles every connected
+   toolkit + account. Standard MCP `tools/list` + `tools/call` over
+   streamable HTTP.
+
+**Rejected:** Option 1. For a multi-account setup (6 Gmails, 6
+calendars, 4 Drives, etc.), the SDK approach forces a per-connection
+routing table baked into env vars or code. The MCP URL surface is
+already scoped at the user level and lists every tool — the only thing
+left is for Claude to pick the right `connection_id`/account-context
+parameter when calling, which is what `Composio Mapping.md` is for.
+
+**Trade-off:** AI SDK v6 dropped `experimental_createMCPClient`, so we
+use the MCP SDK Client directly. That's already a dependency from the
+platform's own MCP server, so net zero. Tool listings are cached for
+5 minutes per cold start to keep chat init fast — adding a new
+Composio connection takes up to 5 minutes (or a redeploy) to surface.
+Worth it for the simplicity.
+
+---
+
 ## ADR-017 — In-platform chat tools defined directly, not via MCP roundtrip
 
 **Date:** 2026-05-01 · Phase 5b

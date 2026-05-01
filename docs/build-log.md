@@ -35,7 +35,7 @@ why. Updated at the end of each phase.
 | F3 — Inline previews | ✅ Complete | 2026-05-01 | `/api/files/[id]` proxy + `/preview` converter; PDFs in iframe, DOCX/XLSX as rendered HTML, images inline |
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 | /activity page with filters + pagination, topbar bell with unread count, per-space activity surface |
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 | Vercel AI SDK v6 + claude-sonnet-4-5; 8 platform tools wired in; localStorage persistence; current-page context |
-| 5c — Composio integration | ⏳ Not started | — | Gmail / Calendar / Drive / Granola via Composio MCP |
+| 5c — Composio integration | ✅ Complete | 2026-05-01 | MCP URL approach: chat connects to single `COMPOSIO_MCP_URL`, dynamically lists Gmail × 6 / Calendar × 6 / Drive × 4 / Notion / LinkedIn / Discord / QuickBooks |
 | 5d — Live artifacts | ⏳ Not started | — | Inline kanban snapshots / status cards / charts in chat |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
 | F4 — Multi-source ingestion | ⏳ Not started | — | Composio Drive watcher, Gmail attachments, manual upload UI |
@@ -81,6 +81,59 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 5c — Composio Integration (External Tools via MCP)
+
+**Shipped:** 2026-05-01
+**Spec target:** Phase 5
+
+### What was built
+The in-platform Claude chat now talks to Composio over MCP. One env
+var (`COMPOSIO_MCP_URL`) is the entire setup — that single URL is
+scoped to the Composio user and bundles every connected toolkit and
+account.
+
+- New file: `src/lib/chat/composio-tools.ts`
+- Connects via `@modelcontextprotocol/sdk`'s `Client` +
+  `StreamableHTTPClientTransport` (already a dependency from the MCP
+  server build).
+- Lists tools at chat init, caches the result for 5 minutes per
+  serverless cold start.
+- Each MCP tool is wrapped as an AI SDK `dynamicTool` with the MCP
+  `inputSchema` passed straight through via `jsonSchema()`.
+- `composioPromptHint()` adds a routing primer to the system prompt
+  pointing Claude at the **Composio Mapping** wiki page when it needs
+  to disambiguate accounts.
+- Soft-fail behavior preserved: if `COMPOSIO_MCP_URL` is unset, or the
+  MCP handshake fails, the chat falls back to platform-only tools
+  rather than 500'ing.
+
+### Divergences from spec
+- The spec implied per-toolkit SDK calls with `COMPOSIO_API_KEY` +
+  user IDs. Composio's MCP URL surface is simpler: one URL = all
+  toolkits + connections. We removed `@composio/core` and
+  `@composio/vercel` from the dep tree.
+- Routing across multiple Gmail/Calendar/Drive accounts is handled by
+  Claude reading `Composio Mapping.md` (synced into wiki), not by
+  setting Composio's `is_default` flag — which is irrelevant for
+  in-platform chat.
+
+### Verification
+- `npx tsc --noEmit` clean.
+- `npm run build` clean.
+- Live smoke test pending — needs the `COMPOSIO_MCP_URL` value pasted
+  into Vercel env vars.
+
+### Friction encountered
+- AI SDK v6 dropped the `experimental_createMCPClient` export. Using
+  the MCP SDK's `Client` directly worked cleanly — same package the
+  platform's own MCP server is built on.
+- Initial design used `@composio/core`'s `Composio.tools.get(userId,
+  …)`. Required collecting per-connection user IDs from Composio's
+  dashboard. Switching to the MCP URL surface dropped that whole
+  ceremony.
 
 ---
 

@@ -1,79 +1,148 @@
-import { Composio } from "@composio/core";
-import { VercelProvider } from "@composio/vercel";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { dynamicTool, jsonSchema } from "@ai-sdk/provider-utils";
 import type { ToolSet } from "ai";
 
 /**
- * Toolkits we expose to the in-platform chat from Composio. Order matters
- * for context: Gmail / Calendar / Drive first since they're the most-used,
- * then richer apps. Add new toolkits here as the user connects them.
+ * Composio MCP integration.
  *
- * Mirrors the active list in `Knowledge/Frameworks/Shared Brain/Composio Mapping.md`.
+ * Composio exposes a single MCP URL per user that bundles all connected
+ * toolkits + accounts. We connect to that URL via streamable HTTP, list
+ * the tools, and adapt them into AI SDK `dynamicTool`s so `streamText`
+ * can call them.
+ *
+ * Setup: paste the MCP URL Composio gives you into `COMPOSIO_MCP_URL`
+ * (`.env.local` for dev, Vercel env vars for prod). No user IDs needed —
+ * the URL itself is scoped to your Composio user.
+ *
+ * The companion routing doc is `Knowledge/Frameworks/Shared Brain/Composio Mapping.md`,
+ * which lists the active toolkits and tells Claude which connected
+ * account to prefer for each request.
  */
-const ENABLED_TOOLKITS = [
-  "gmail",
-  "googlecalendar",
-  "googledrive",
-  "notion",
-  "linkedin",
-  "discord",
-  "quickbooks",
-];
 
 export function isComposioConfigured(): boolean {
-  return !!process.env.COMPOSIO_API_KEY;
+  return !!process.env.COMPOSIO_MCP_URL;
 }
 
-let _composio: Composio<VercelProvider> | null = null;
-function getComposio(): Composio<VercelProvider> {
-  if (_composio) return _composio;
-  if (!process.env.COMPOSIO_API_KEY) {
-    throw new Error("COMPOSIO_API_KEY is not set");
+/**
+ * Per-process cache: connecting to MCP and listing tools costs a network
+ * round trip. The chat route calls `getComposioTools` on every request,
+ * so we keep the connection warm for the lifetime of the serverless
+ * worker. If the connection drops we lazily reconnect on next call.
+ */
+let _client: Client | null = null;
+let _transport: StreamableHTTPClientTransport | null = null;
+let _toolsCache: ToolSet | null = null;
+let _toolsCacheAt = 0;
+const TOOLS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getClient(): Promise<Client> {
+  if (_client) return _client;
+  const url = process.env.COMPOSIO_MCP_URL;
+  if (!url) throw new Error("COMPOSIO_MCP_URL is not set");
+
+  const transport = new StreamableHTTPClientTransport(new URL(url));
+  const client = new Client(
+    { name: "shared-brain-chat", version: "1.0.0" },
+    { capabilities: {} },
+  );
+  await client.connect(transport);
+  _client = client;
+  _transport = transport;
+  return client;
+}
+
+async function resetClient() {
+  try {
+    await _client?.close();
+  } catch {
+    /* swallow */
   }
-  _composio = new Composio({
-    apiKey: process.env.COMPOSIO_API_KEY,
-    provider: new VercelProvider(),
-  });
-  return _composio;
+  try {
+    await _transport?.close();
+  } catch {
+    /* swallow */
+  }
+  _client = null;
+  _transport = null;
+  _toolsCache = null;
+}
+
+type McpListedTool = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+};
+
+function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
+  const out: ToolSet = {};
+  for (const t of tools) {
+    const schema = (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>;
+    out[t.name] = dynamicTool({
+      description: t.description,
+      inputSchema: jsonSchema(schema as never),
+      execute: async (args) => {
+        try {
+          const result = await client.callTool({
+            name: t.name,
+            arguments: (args ?? {}) as Record<string, unknown>,
+          });
+          return result;
+        } catch (err) {
+          // Surface the error to the model rather than blowing up the whole stream.
+          return { error: (err as Error).message };
+        }
+      },
+    });
+  }
+  return out;
 }
 
 /**
  * Fetch the Composio tool set for this chat session. Returns an empty object
  * if Composio isn't configured — the chat still works with platform-only
  * tools in that case.
- *
- * `userId` is whatever Composio identifier we registered the user under.
- * For solo Keegan: COMPOSIO_USER_ID env var (defaults to "default" if unset).
  */
 export async function getComposioTools(): Promise<ToolSet> {
   if (!isComposioConfigured()) return {} as ToolSet;
-  const userId = process.env.COMPOSIO_USER_ID || "default";
+  const now = Date.now();
+  if (_toolsCache && now - _toolsCacheAt < TOOLS_CACHE_TTL_MS) {
+    return _toolsCache;
+  }
   try {
-    const composio = getComposio();
-    const tools = (await composio.tools.get(userId, {
-      toolkits: ENABLED_TOOLKITS,
-    })) as unknown as ToolSet;
+    const client = await getClient();
+    const listed = await client.listTools();
+    const tools = adaptMcpTools(client, (listed.tools ?? []) as McpListedTool[]);
+    _toolsCache = tools;
+    _toolsCacheAt = now;
     return tools;
   } catch (err) {
-    console.warn("[chat] Composio tools fetch failed:", (err as Error).message);
+    console.warn("[chat] Composio MCP tools fetch failed:", (err as Error).message);
+    await resetClient();
     return {} as ToolSet;
   }
 }
 
 /**
  * Short summary line used inside the system prompt when Composio is wired up,
- * so Claude knows the external tools are available and which accounts back them.
+ * so Claude knows the external tools are available and how to route between
+ * the multiple connected accounts behind each toolkit.
  */
 export function composioPromptHint(): string | null {
   if (!isComposioConfigured()) return null;
   return [
-    "## External tools (Composio)",
-    "You also have Composio tools for the following toolkits:",
-    `${ENABLED_TOOLKITS.map((t) => `\`${t}\``).join(", ")}.`,
+    "## External tools (Composio MCP)",
+    "You have access to the user's connected Composio toolkits via MCP:",
+    "Gmail, Google Calendar, Google Drive, Notion, LinkedIn, Discord, QuickBooks.",
     "",
     "Multi-account routing: each toolkit may have multiple connected",
-    "accounts. When the user implies a specific account (e.g. \"send",
-    "from my SimHouse address\"), pick the matching connection. The full",
-    "routing rules live in the wiki page **Composio Mapping**; call",
-    "`search` for it if you need precise account IDs.",
+    "accounts (e.g. 6 Gmail addresses). When the user implies a specific",
+    "account (\"send from my SimHouse address\", \"check the ChiefofChaos calendar\"),",
+    "pick the matching connection. When unspecified, default to the",
+    "ViaOps account (`keegan@viaops.co`) for any Google service.",
+    "",
+    "The full routing rules live in the wiki page **Composio Mapping** —",
+    "call `search` for it if you need precise account IDs or context for",
+    "a specific brand.",
   ].join("\n");
 }

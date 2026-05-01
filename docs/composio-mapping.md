@@ -32,25 +32,31 @@ related: "[[AI-Native PM Platform - MVP Spec]]"
 
 **7 toolkits active · 19 connected accounts total.**
 
-| Toolkit | Status | # accounts | Default account |
-|---|---|---|---|
-| `gmail` | ✅ Active | 6 | `keegan@theswingbays.com` |
-| `googlecalendar` | ✅ Active | 6 | `keegan@theswingbays.com` |
-| `googledrive` | ✅ Active | 4 | `keegan@simhouse.io` |
-| `notion` | ✅ Active | 1 | `XPFlow` workspace |
-| `linkedin` | ✅ Active | 1 | `k.lamar59@gmail.com` |
-| `discord` | ✅ Active | 1 | `keegan5333` |
-| `quickbooks` | ✅ Active | 1 | `keegan@lamarcoaching.com` |
+> **Routing default for Claude:** when the user's request doesn't specify
+> an account, prefer `keegan@viaops.co` for any Google service. Composio's
+> own `is_default` flag (currently set to SwingBays for Gmail+Calendar
+> and SimHouse for Drive) is irrelevant for the in-platform chat — Claude
+> follows the rules in this doc, not Composio's UI default.
+
+| Toolkit | Status | # accounts | Claude routing default | Composio `is_default` |
+|---|---|---|---|---|
+| `gmail` | ✅ Active | 6 | **`keegan@viaops.co`** | `keegan@theswingbays.com` |
+| `googlecalendar` | ✅ Active | 6 | **`keegan@viaops.co`** | `keegan@theswingbays.com` |
+| `googledrive` | ✅ Active | 4 | **`keegan@viaops.co`** | `keegan@simhouse.io` |
+| `notion` | ✅ Active | 1 | XPFlow workspace | XPFlow |
+| `linkedin` | ✅ Active | 1 | k.lamar59@gmail.com | k.lamar59@gmail.com |
+| `discord` | ✅ Active | 1 | keegan5333 | keegan5333 |
+| `quickbooks` | ✅ Active | 1 | keegan@lamarcoaching.com | keegan@lamarcoaching.com |
 
 **Not connected** (toolkit known to Composio but no auth done):
 `googledocs`, `googlesheets`, `slack`, `github`, `outlook`, `googlemeet`,
 `fireflies`, `granola`, `hubspot`, `linear`.
 
-> Slack and Granola are conspicuously missing — both are in the
-> `Knowledge/AI Research/Composio.md` "key integrations" list. If
-> they're meant to be active, walk through the Composio dashboard to
-> connect them, then re-run the mapping update procedure at the bottom
-> of this doc.
+These are intentionally not in scope for the current Shared Brain
+build — only the 7 active toolkits above are wired into the chat.
+Add them to Composio when needed and re-run the mapping update
+procedure at the bottom of this doc; the platform picks them up
+automatically.
 
 ---
 
@@ -60,21 +66,23 @@ related: "[[AI-Native PM Platform - MVP Spec]]"
 
 | Account ID | Email | Role / context | Volume |
 |---|---|---|---|
-| `gmail_shady-beday` ★ | `keegan@theswingbays.com` | SwingBays — SimHouse client launch | 2 messages |
+| `gmail_berret-drinn` ★ | `keegan@viaops.co` | **ViaOps internal — primary work address** | 217 messages |
 | `gmail_sorage-wavira` | `keegan@chiefofchaos.com` | XP Flow / Chief of Chaos work | 633 messages |
 | `gmail_rubine-smell` | `keegan@simhouse.io` | SimHouse internal | 106 messages |
 | `gmail_casper-nerium` | `keegan@lamarcoaching.com` | Coaching practice; QuickBooks billing | 46,102 messages |
 | `gmail_theek-rush` | `k.lamar59@gmail.com` | Personal | 84,155 messages |
-| `gmail_berret-drinn` | `keegan@viaops.co` | ViaOps internal — primary work address | 217 messages |
+| `gmail_shady-beday` | `keegan@theswingbays.com` | SwingBays — rarely used | 2 messages |
 
-★ default account — Composio uses this when no explicit account is specified.
+★ Claude's preferred default. Composio's own `is_default` is set to
+`gmail_shady-beday` (SwingBays) — irrelevant for this chat; Claude
+follows the rules below.
 
 **Routing rules for Claude:**
-- "Send a ViaOps email" / "from my work address" → `gmail_berret-drinn`
+- **Default / unspecified / "send an email"** → `gmail_berret-drinn` (ViaOps)
 - "From SimHouse" → `gmail_rubine-smell`
 - "Coaching client" / "Lamar Coaching" → `gmail_casper-nerium`
 - "Chief of Chaos" / "XP Flow company" → `gmail_sorage-wavira`
-- "SwingBays" → `gmail_shady-beday`
+- "SwingBays" → `gmail_shady-beday` (rarely)
 - "Personal" → `gmail_theek-rush`
 
 ---
@@ -83,14 +91,19 @@ related: "[[AI-Native PM Platform - MVP Spec]]"
 
 | Account ID | Calendar | Notes |
 |---|---|---|
-| `googlecalendar_servet-yaya` ★ | `keegan@theswingbays.com` | SwingBays scheduling |
+| `googlecalendar_finn-septa` ★ | `keegan@viaops.co` | **ViaOps internal — primary work calendar** |
 | `googlecalendar_bowls-gandum` | `keegan@chiefofchaos.com` | XP Flow / CoC. **Also reads** `matt@chiefofchaos.com`, `patti@chiefofchaos.com` |
 | `googlecalendar_whole-scrim` | `keegan@simhouse.io` | SimHouse |
 | `googlecalendar_suave-saco` | `keegan@lamarcoaching.com` | Coaching |
-| `googlecalendar_finn-septa` | `keegan@viaops.co` | ViaOps internal |
+| `googlecalendar_servet-yaya` | `keegan@theswingbays.com` | SwingBays — rarely used |
 | `googlecalendar_prof-enlife` | `k.lamar59@gmail.com` | Personal |
 
-**Routing rules for Claude:** same context map as Gmail above.
+★ Claude's preferred default. Composio's own `is_default` is set to
+`googlecalendar_servet-yaya` (SwingBays) — irrelevant for this chat.
+
+**Routing rules for Claude:** same context map as Gmail above
+(default → ViaOps; brand-specific keywords pick a different
+calendar).
 
 **Cross-calendar visibility:** the CoC calendar account (`bowls-gandum`)
 has read access to Matt Frary's and Patti's calendars — useful for
@@ -102,14 +115,13 @@ has read access to Matt Frary's and Patti's calendars — useful for
 
 | Account ID | Email | Workspace |
 |---|---|---|
-| `googledrive_thilly-backet` ★ | `keegan@simhouse.io` | simhouse.io domain |
+| `googledrive_tilaka-actian` ★ | `keegan@viaops.co` | **viaops.co domain — primary work Drive** |
 | `googledrive_ahmed-charry` | `keegan@chiefofchaos.com` | chiefofchaos.com domain |
+| `googledrive_thilly-backet` | `keegan@simhouse.io` | simhouse.io domain |
 | `googledrive_tigger-robe` | `keegan@lamarcoaching.com` | lamarcoaching.com domain |
-| `googledrive_tilaka-actian` | `keegan@viaops.co` | viaops.co domain |
 
-> Drive is the only Google service NOT also connected for SwingBays
-> and personal. Add the SwingBays Drive if you start storing client
-> docs in it.
+★ Claude's preferred default. Composio's own `is_default` is set to
+`googledrive_thilly-backet` (SimHouse) — irrelevant for this chat.
 
 ---
 
@@ -165,7 +177,7 @@ Either ask the platform Claude:
 > "Update the Composio mapping — list all my connected accounts and
 > save the new state to `Composio Mapping.md`."
 
-(Once Phase 5c ships, the platform Claude has Composio MCP access and
+(Phase 5c shipped — the platform Claude has Composio MCP access and
 can do this in-place.)
 
 Or manually:
@@ -182,9 +194,11 @@ Or manually:
 
 ## How Composio is wired into the platform (Phase 5c)
 
-When Phase 5c ships, the in-platform chat panel will load Composio
-tools at chat-init time using the user's `COMPOSIO_API_KEY`. The chat
-will be able to:
+The in-platform chat connects to a single **Composio MCP URL**
+(`COMPOSIO_MCP_URL` env var). That URL is scoped to your Composio user
+and bundles every toolkit + connection in one feed — no per-connection
+user IDs needed. The chat lists tools at cold start (5-min TTL cache)
+and can:
 
 - Read and send Gmail across all 6 accounts
 - Check / create / edit calendar events across all 6 calendars
@@ -193,27 +207,24 @@ will be able to:
 - Post to LinkedIn, Discord, QuickBooks
 
 Code paths:
-- `src/lib/chat/composio-tools.ts` — fetches tools per request via
-  `@composio/core` SDK
+- `src/lib/chat/composio-tools.ts` — opens an MCP client with
+  `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport`,
+  lists tools, and adapts each one into an AI SDK `dynamicTool`.
 - `src/app/api/chat/route.ts` — merges Composio tools with platform
-  tools and passes both to `streamText`
+  tools and passes both to `streamText`.
 
-The system prompt will include a compressed version of the routing
-rules above so Claude picks the right account without being told each
-time.
+The system prompt includes a compressed version of the routing rules
+above so Claude picks the right account without being told each time,
+and points to this wiki page for full account IDs.
 
 ---
 
 ## Open work
 
-- [ ] **Connect Slack workspaces.** ViaOps, SimHouse, XP Flow, CoC,
-      Partnership Lounge, PMA, Digital Good — none are in Composio yet.
-- [ ] **Connect Granola.** Cowork still uses the standalone Granola MCP
-      from `claude_desktop_config.json` — moving to Composio would let
-      cloud routines hit Granola too.
-- [ ] **Connect Fireflies.** Matt Frary's primary meeting-notes system;
-      Composio supports it.
-- [ ] **Connect SwingBays Google Drive.** Currently the only Google
-      service we have for SwingBays is Calendar + Gmail.
-- [ ] **Decide on Outlook.** Some clients (or future) might use Outlook
-      — connect when needed.
+- [ ] **(Optional) Update Composio dashboard defaults** to match the
+      Claude routing defaults above (ViaOps for Gmail / Calendar /
+      Drive). The chat works either way; this only affects external
+      integrations or batch jobs that don't go through Claude.
+- [ ] **Future: connect more toolkits as needed** — Slack, Granola,
+      Fireflies, SwingBays Drive, etc. Out of scope for the current
+      build; pick up when a real workflow demands them.

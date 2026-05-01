@@ -103,6 +103,50 @@ Defined in `src/lib/chat/tools.ts`. To add a new tool:
 
 ---
 
+## External tools via Composio MCP (Phase 5c)
+
+Composio exposes a single MCP URL per user that bundles every connected
+toolkit + account (Gmail × 6, Calendar × 6, Drive × 4, Notion, LinkedIn,
+Discord, QuickBooks — see `Composio Mapping.md`). The chat connects to
+that one URL and lists tools dynamically.
+
+### Required env vars
+- `COMPOSIO_MCP_URL` — paste the URL Composio gives you under **Settings
+  → MCP** (or the integration page for your account). The URL itself is
+  scoped to your Composio user; no per-connection IDs required.
+
+When unset, the chat falls back to platform-only tools without erroring.
+
+### Wiring
+- Client lives at `src/lib/chat/composio-tools.ts` — uses
+  `@modelcontextprotocol/sdk` Client + `StreamableHTTPClientTransport`.
+- Tools are listed once per cold start (5-min TTL cache) and adapted
+  into AI SDK `dynamicTool`s so `streamText` can call them.
+- The chat system prompt includes a routing hint pointing Claude at the
+  `Composio Mapping` wiki page when it needs to disambiguate accounts.
+
+### Adding/removing toolkits
+You don't. The MCP URL exposes whatever you've connected on Composio's
+side. After connecting a new toolkit:
+1. Update `Composio Mapping.md` with the new account IDs and routing rules
+   (or ask the in-platform Claude: "update the Composio mapping").
+2. The chat picks it up automatically on the next cold start (or wait
+   ~5 min for the cache).
+
+### Debugging
+- Chat says it can't send email / read calendar: check
+  `COMPOSIO_MCP_URL` is set in Vercel. The chat will silently fall back
+  to platform-only tools if the URL is missing or the MCP handshake fails.
+- Composio connection errors logged as `[chat] Composio MCP tools fetch
+  failed: ...` in Vercel logs. Most common cause: URL expired or token
+  revoked → regenerate from Composio's dashboard.
+- Claude picks the wrong account: open `Composio Mapping.md` and check
+  the routing rules. Update the **Claude routing default** column for
+  the toolkit; re-sync the vault. Composio's own `is_default` flag is
+  irrelevant for this chat — the wiki doc drives behavior.
+
+---
+
 ## File storage + previews (F1 / F2 / F3)
 
 ### Where files live
