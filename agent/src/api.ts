@@ -32,6 +32,12 @@ export class ApiClient {
     contentHash: string;
     frontmatter?: Record<string, unknown>;
     tags?: string[];
+    /** Vercel Blob URL when the source is a non-markdown file. */
+    blobUrl?: string;
+    /** Plain text pulled out of binary files (PDF, DOCX, XLSX, etc.). */
+    extractedText?: string;
+    /** Word count of extractedText — surfaced in the wiki page metadata. */
+    extractedWordCount?: number;
   }) {
     return this.req<{ ok: boolean; pageId?: string; skipped?: boolean; action?: string }>(
       "/api/sync/wiki",

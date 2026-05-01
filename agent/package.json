@@ -11,9 +11,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/pdf-parse": "^1.1.5",
+    "@vercel/blob": "^2.3.3",
     "chokidar": "^4.0.3",
     "gray-matter": "^4.0.3",
-    "p-limit": "^7.1.0"
+    "mammoth": "^1.12.0",
+    "p-limit": "^7.1.0",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",

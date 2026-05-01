@@ -8,6 +8,7 @@ import {
   index,
   customType,
   real,
+  integer,
 } from "drizzle-orm/pg-core";
 
 const vector = customType<{ data: number[]; driverData: string }>({
@@ -107,6 +108,12 @@ export const wikiPages = pgTable(
     content: text("content").notNull().default(""),
     accessRoles: text("access_roles").array().notNull().default(sql`ARRAY[]::text[]`),
     embedding: vector("embedding"),
+    /** Vercel Blob URL for non-markdown files (PDFs, images, etc.). null for prose pages. */
+    blobUrl: text("blob_url"),
+    /** Plain-text content extracted from binary files (PDF text, DOCX body, etc.). */
+    extractedText: text("extracted_text"),
+    /** Roughly the word count of extracted_text — surfaced in UI to indicate indexing depth. */
+    extractedWordCount: integer("extracted_word_count"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

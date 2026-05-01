@@ -27,14 +27,22 @@ export default async function WikiPage({ params }: Props) {
     frontmatter?: Record<string, unknown>;
   } | null) ?? null;
 
-  // Build an Obsidian deep link if we know the source path. Format:
-  //   obsidian://open?vault=<vault-name>&file=<vault-relative-path-without-extension>
+  // Build an Obsidian deep link if we know the source path.
   const VAULT_NAME = "ViaOps";
   const obsidianHref = meta?.filePath
     ? `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(
         meta.filePath.replace(/\.md$/, ""),
       )}`
     : null;
+
+  // File-artifact details — present iff this entry was synced from a non-md file.
+  const isFile = (meta?.tags ?? []).includes("file");
+  const fileExtTag = (meta?.tags ?? []).find((t) => t.startsWith("file-"));
+  const fileExt = fileExtTag ? fileExtTag.slice("file-".length) : null;
+  const blobUrl = page.blobUrl;
+  const isImage = fileExt
+    ? ["png", "jpg", "jpeg", "gif", "svg", "webp", "heic"].includes(fileExt)
+    : false;
 
   // Strip Obsidian-style frontmatter if it sneaked into the body — gray-matter
   // already removed it on the way in, but be defensive on legacy rows.
@@ -78,6 +86,46 @@ export default async function WikiPage({ params }: Props) {
             ))}
           </div>
         </div>
+
+        {isFile && blobUrl && (
+          <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]/40 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="inline-flex items-center gap-2 rounded-md bg-[hsl(var(--primary))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--primary-foreground))] hover:opacity-90"
+              >
+                Download {fileExt ? fileExt.toUpperCase() : "file"}
+              </a>
+              <a
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[hsl(var(--muted-foreground))] hover:underline"
+              >
+                Open in browser
+              </a>
+              {page.extractedWordCount !== null && page.extractedWordCount > 0 && (
+                <span className="ml-auto text-xs text-[hsl(var(--muted-foreground))]">
+                  ✓ Indexed for search · {page.extractedWordCount.toLocaleString()} words
+                </span>
+              )}
+            </div>
+            {isImage && (
+              <div className="mt-3 overflow-hidden rounded border border-[hsl(var(--border))]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={blobUrl}
+                  alt={page.title}
+                  className="block max-h-[60vh] w-auto"
+                  loading="lazy"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         <article className="markdown-body">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>

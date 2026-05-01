@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ApiClient } from "./api.ts";
+import { isBlobConfigured, uploadFileToBlob } from "./blob.ts";
 import type { SyncConfig } from "./config.ts";
 import { relPath } from "./config.ts";
+import { extractText } from "./extract.ts";
 import { sha1 } from "./hash.ts";
 import { fallbackTitleFromPath, mapPath } from "./mapper.ts";
 import { parseMarkdown, parseTasks } from "./parser.ts";
@@ -69,18 +71,47 @@ export async function syncOne(
   try {
     switch (mapping.kind) {
       case "file_artifact": {
-        // Synthesize a small wiki page describing the file. Title = filename
-        // without extension. Content includes type, size, and an Obsidian
-        // deep-link so the user can open the file from the platform.
         const ext = path.extname(absPath).slice(1).toLowerCase() || "file";
         const filename = path.basename(absPath);
         const titleNoExt = filename.replace(/\.[^.]+$/, "");
         const stat = await fs.stat(absPath).catch(() => null);
         const sizeKb = stat ? Math.round(stat.size / 1024) : null;
 
+        // 1. Upload bytes to Vercel Blob (if configured). Pass the URL to the
+        //    server so it stores blob_url alongside the wiki entry.
+        let blobUrl: string | null = null;
+        if (isBlobConfigured()) {
+          try {
+            blobUrl = await uploadFileToBlob({ absPath, vaultRelPath: relative });
+          } catch (err) {
+            // Don't fail the whole sync on a blob upload error — log and continue
+            // with a wiki entry that just has the metadata.
+            console.warn(
+              `[sync] blob upload failed for ${relative}: ${(err as Error).message}`,
+            );
+          }
+        }
+
+        // 2. Extract plain text from the file (PDFs, DOCX, XLSX, code, etc.).
+        const extracted = await extractText(absPath);
+
+        // 3. Build the synthetic wiki body. Includes file metadata plus a
+        //    short snippet of the extracted text so the page itself is
+        //    glanceable in the wiki tree.
         const obsidianHref = `obsidian://open?vault=ViaOps&file=${encodeURIComponent(
           relative.replace(/\.[^.]+$/, ""),
         )}`;
+        const indexedNote = extracted.text
+          ? `_Indexed for semantic search — ${extracted.wordCount.toLocaleString()} words extracted._`
+          : extracted.skipReason
+            ? `_File stored. ${extracted.skipReason}._`
+            : `_File stored. Content not indexed (binary)._`;
+
+        const snippet = extracted.text
+          ? "\n\n---\n\n## Preview\n\n" +
+            extracted.text.slice(0, 1500).trim() +
+            (extracted.text.length > 1500 ? "\n\n…" : "")
+          : "";
 
         const synthBody = [
           `**${ext.toUpperCase()} file** — \`${filename}\``,
@@ -88,10 +119,12 @@ export async function syncOne(
           `- **Path:** \`${relative}\``,
           sizeKb !== null ? `- **Size:** ${sizeKb} KB` : null,
           stat ? `- **Modified:** ${stat.mtime.toISOString()}` : null,
+          blobUrl ? `- **Stored in Shared Brain:** ✅` : null,
           "",
-          `[Open in Obsidian](${obsidianHref})`,
+          blobUrl ? `[Download](${blobUrl}) · [Open in Obsidian](${obsidianHref})` : `[Open in Obsidian](${obsidianHref})`,
           "",
-          `_This is a non-markdown artifact. Content is not indexed for semantic search; the file lives in the local vault and opens via Obsidian._`,
+          indexedNote,
+          snippet,
         ]
           .filter((l) => l !== null)
           .join("\n");
@@ -105,6 +138,9 @@ export async function syncOne(
           contentHash: hash,
           frontmatter: {},
           tags,
+          blobUrl: blobUrl ?? undefined,
+          extractedText: extracted.text ?? undefined,
+          extractedWordCount: extracted.wordCount,
         });
         return { ok: true, action: res.skipped ? "skipped" : (res.action as "created" | "updated") };
       }

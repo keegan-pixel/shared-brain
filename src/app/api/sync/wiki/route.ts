@@ -17,25 +17,53 @@ const Schema = z.object({
   contentHash: z.string().min(1),
   frontmatter: z.record(z.string(), z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
+  blobUrl: z.string().url().optional(),
+  extractedText: z.string().optional(),
+  extractedWordCount: z.number().int().nonnegative().optional(),
 });
+
+/**
+ * Build the input string we send to the embedding model. For prose pages
+ * (no extracted_text), we use title + content. For binary files with
+ * extracted text, we prefer title + extracted_text (the synthetic content
+ * is mostly metadata; the actual document text is what users want to find).
+ *
+ * Cap at ~6000 chars to stay well under the 8K-token limit of
+ * text-embedding-3-small.
+ */
+function buildEmbeddingInput(args: {
+  title: string;
+  content: string;
+  extractedText?: string;
+}): string {
+  const MAX_CHARS = 6000;
+  if (args.extractedText && args.extractedText.trim()) {
+    return `${args.title}\n\n${args.extractedText.slice(0, MAX_CHARS)}`;
+  }
+  return `${args.title}\n\n${args.content.slice(0, MAX_CHARS)}`;
+}
 
 export const POST = handle(async (req: Request) => {
   requireSyncAuth(req);
   const body = await parseJson(req, Schema);
   const { orgId } = await resolveSyncOrg();
 
-  // Look up by filePath via vault_sync_log
   const [logRow] = await db
     .select()
     .from(vaultSyncLog)
     .where(eq(vaultSyncLog.filePath, body.filePath));
 
-  // Skip work if hash unchanged
   if (logRow && logRow.contentHash === body.contentHash && logRow.entityId) {
     return NextResponse.json({ ok: true, skipped: true, pageId: logRow.entityId });
   }
 
-  const embedding = await embed(`${body.title}\n\n${body.content}`);
+  const embeddingInput = buildEmbeddingInput({
+    title: body.title,
+    content: body.content,
+    extractedText: body.extractedText,
+  });
+  const embedding = await embed(embeddingInput);
+
   const metadata = {
     filePath: body.filePath,
     frontmatter: body.frontmatter ?? {},
@@ -51,6 +79,11 @@ export const POST = handle(async (req: Request) => {
         content: body.content,
         metadata,
         ...(embedding ? { embedding } : {}),
+        ...(body.blobUrl !== undefined ? { blobUrl: body.blobUrl } : {}),
+        ...(body.extractedText !== undefined ? { extractedText: body.extractedText } : {}),
+        ...(body.extractedWordCount !== undefined
+          ? { extractedWordCount: body.extractedWordCount }
+          : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(wikiPages.id, logRow.entityId), eq(wikiPages.orgId, orgId)))
@@ -65,6 +98,9 @@ export const POST = handle(async (req: Request) => {
         content: body.content,
         metadata,
         ...(embedding ? { embedding } : {}),
+        blobUrl: body.blobUrl ?? null,
+        extractedText: body.extractedText ?? null,
+        extractedWordCount: body.extractedWordCount ?? null,
       })
       .returning({ id: wikiPages.id });
     pageId = created.id;
@@ -102,7 +138,6 @@ export const POST = handle(async (req: Request) => {
     metadata: { filePath: body.filePath },
   });
 
-  // Recompute write-time edges for this page.
   await indexEntityLinks({
     orgId,
     source: { type: "wiki_page", id: pageId },
