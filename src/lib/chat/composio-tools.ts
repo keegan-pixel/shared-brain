@@ -11,9 +11,11 @@ import type { ToolSet } from "ai";
  * the tools, and adapt them into AI SDK `dynamicTool`s so `streamText`
  * can call them.
  *
- * Setup: paste the MCP URL Composio gives you into `COMPOSIO_MCP_URL`
- * (`.env.local` for dev, Vercel env vars for prod). No user IDs needed —
- * the URL itself is scoped to your Composio user.
+ * Setup: paste the MCP URL Composio gives you into `COMPOSIO_MCP_URL`,
+ * and the API key shown next to it into `COMPOSIO_API_KEY`. Both go in
+ * `.env.local` for dev and Vercel env vars for prod. No user IDs needed —
+ * the URL is scoped to your Composio user and the API key authenticates
+ * the MCP handshake.
  *
  * The companion routing doc is `Knowledge/Frameworks/Shared Brain/Composio Mapping.md`,
  * which lists the active toolkits and tells Claude which connected
@@ -40,8 +42,20 @@ async function getClient(): Promise<Client> {
   if (_client) return _client;
   const url = process.env.COMPOSIO_MCP_URL;
   if (!url) throw new Error("COMPOSIO_MCP_URL is not set");
+  const apiKey = process.env.COMPOSIO_API_KEY;
 
-  const transport = new StreamableHTTPClientTransport(new URL(url));
+  // Composio's MCP endpoint expects the API key as a bearer token. We
+  // also set `x-api-key` for compatibility with whichever header
+  // convention Composio's gateway is currently using.
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+    headers["x-api-key"] = apiKey;
+  }
+
+  const transport = new StreamableHTTPClientTransport(new URL(url), {
+    requestInit: { headers },
+  });
   const client = new Client(
     { name: "shared-brain-chat", version: "1.0.0" },
     { capabilities: {} },

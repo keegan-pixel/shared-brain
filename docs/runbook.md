@@ -111,11 +111,15 @@ Discord, QuickBooks — see `Composio Mapping.md`). The chat connects to
 that one URL and lists tools dynamically.
 
 ### Required env vars
-- `COMPOSIO_MCP_URL` — paste the URL Composio gives you under **Settings
-  → MCP** (or the integration page for your account). The URL itself is
-  scoped to your Composio user; no per-connection IDs required.
+- `COMPOSIO_MCP_URL` — the MCP URL shown in Composio's dashboard
+  (Settings → MCP, or the integration page for your account). Scoped
+  to your Composio user; bundles every connected toolkit + account.
+- `COMPOSIO_API_KEY` — the API key shown next to the URL. Sent as
+  `Authorization: Bearer ...` (and `x-api-key` for compatibility) on
+  every MCP request.
 
-When unset, the chat falls back to platform-only tools without erroring.
+When either is unset, the chat falls back to platform-only tools
+without erroring.
 
 ### Wiring
 - Client lives at `src/lib/chat/composio-tools.ts` — uses

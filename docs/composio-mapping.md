@@ -195,10 +195,10 @@ Or manually:
 ## How Composio is wired into the platform (Phase 5c)
 
 The in-platform chat connects to a single **Composio MCP URL**
-(`COMPOSIO_MCP_URL` env var). That URL is scoped to your Composio user
-and bundles every toolkit + connection in one feed — no per-connection
-user IDs needed. The chat lists tools at cold start (5-min TTL cache)
-and can:
+(`COMPOSIO_MCP_URL`) authenticated with `COMPOSIO_API_KEY` as a bearer
+token. That URL is scoped to your Composio user and bundles every
+toolkit + connection in one feed — no per-connection user IDs needed.
+The chat lists tools at cold start (5-min TTL cache) and can:
 
 - Read and send Gmail across all 6 accounts
 - Check / create / edit calendar events across all 6 calendars
