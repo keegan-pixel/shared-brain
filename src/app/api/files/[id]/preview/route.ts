@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
-import { head } from "@vercel/blob";
+import { get } from "@vercel/blob";
 import { db } from "@/lib/db/client";
 import { wikiPages } from "@/lib/db/schema";
 import { ApiError, handle } from "@/lib/api";
@@ -36,18 +36,13 @@ export const GET = handle(async (_req: Request, ctx: Ctx) => {
     throw new ApiError(`No preview available for .${ext}`, 415);
   }
 
-  // Resolve a temporary download URL for private blobs.
-  let downloadUrl: string;
-  try {
-    const meta = await head(page.blobUrl);
-    downloadUrl = meta.downloadUrl ?? page.blobUrl;
-  } catch {
-    downloadUrl = page.blobUrl;
+  // Fetch the blob bytes via the SDK's get(), which handles private-blob
+  // auth using BLOB_READ_WRITE_TOKEN server-side.
+  const result = await get(page.blobUrl, { access: "private" });
+  if (!result || result.statusCode !== 200 || !result.stream) {
+    throw new ApiError(`Blob fetch failed (status ${result?.statusCode ?? "unknown"})`, 502);
   }
-
-  const upstream = await fetch(downloadUrl);
-  if (!upstream.ok) throw new ApiError(`Blob fetch failed: ${upstream.status}`, 502);
-  const arrayBuf = await upstream.arrayBuffer();
+  const arrayBuf = await new Response(result.stream).arrayBuffer();
   const buf = Buffer.from(arrayBuf);
 
   if (ext === "docx") {

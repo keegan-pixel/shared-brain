@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { head } from "@vercel/blob";
+import { get } from "@vercel/blob";
 import { db } from "@/lib/db/client";
 import { wikiPages } from "@/lib/db/schema";
 import { ApiError, handle, jsonError } from "@/lib/api";
@@ -8,12 +8,14 @@ import { ensureUserOrg } from "@/lib/org";
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * Server-side proxy for files stored in Vercel Blob. Auth'd via the same
- * Clerk session as the rest of the app, so any signed-in org member can
- * download / preview files even though the underlying blob is private.
+ * Server-side proxy for files stored in Vercel Blob.
  *
- * - GET /api/files/<wikiPageId>           → inline (PDFs render in browser viewer)
- * - GET /api/files/<wikiPageId>?download=1 → forces attachment disposition
+ *   GET /api/files/<wikiPageId>             → inline (PDFs render in iframe)
+ *   GET /api/files/<wikiPageId>?download=1  → forces attachment disposition
+ *
+ * Auth: Clerk session (via the global proxy.ts). The actual private blob URL
+ * never reaches the client; @vercel/blob.get() handles auth using the
+ * BLOB_READ_WRITE_TOKEN env var server-side.
  */
 export const GET = handle(async (req: Request, ctx: Ctx) => {
   const { id } = await ctx.params;
@@ -28,62 +30,29 @@ export const GET = handle(async (req: Request, ctx: Ctx) => {
   if (!page) throw new ApiError("Not found", 404);
   if (!page.blobUrl) throw new ApiError("This page has no associated file", 404);
 
-  // Resolve the actual download URL via blob head() — works for both public
-  // and private stores. For private blobs head() returns metadata including
-  // a temporary signed downloadUrl we can fetch from the server.
-  let downloadUrl: string;
-  try {
-    const meta = await head(page.blobUrl);
-    downloadUrl = meta.downloadUrl ?? page.blobUrl;
-  } catch {
-    // Fall back to the stored URL — works if the store is public.
-    downloadUrl = page.blobUrl;
+  const result = await get(page.blobUrl, { access: "private" });
+  if (!result || result.statusCode !== 200 || !result.stream) {
+    return jsonError(`Blob fetch failed (status ${result?.statusCode ?? "unknown"})`, 502);
   }
 
-  // Stream the bytes back to the caller.
-  const upstream = await fetch(downloadUrl);
-  if (!upstream.ok || !upstream.body) {
-    return jsonError(`Upstream blob fetch failed: ${upstream.status}`, 502);
-  }
-
-  const contentType =
-    upstream.headers.get("content-type") ?? "application/octet-stream";
-  const contentLength = upstream.headers.get("content-length");
-
-  // Pull a friendly filename out of metadata.filePath (if synced from vault).
+  // Pull a friendly filename out of metadata.filePath (when synced from vault).
   const filePath =
     (page.metadata as { filePath?: string } | null)?.filePath ?? null;
   const filename = filePath
     ? filePath.split("/").pop()
-    : page.title + extensionFromContentType(contentType);
+    : page.title;
   const disposition = `${forceDownload ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(
     filename ?? "file",
   )}`;
 
   const headers = new Headers({
-    "Content-Type": contentType,
+    "Content-Type": result.blob.contentType || "application/octet-stream",
     "Content-Disposition": disposition,
-    // Brief private cache so repeated previews don't re-fetch from blob.
     "Cache-Control": "private, max-age=60",
   });
-  if (contentLength) headers.set("Content-Length", contentLength);
+  if (typeof result.blob.size === "number") {
+    headers.set("Content-Length", String(result.blob.size));
+  }
 
-  return new Response(upstream.body, { status: 200, headers });
+  return new Response(result.stream, { status: 200, headers });
 });
-
-function extensionFromContentType(ct: string): string {
-  const map: Record<string, string> = {
-    "application/pdf": ".pdf",
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/gif": ".gif",
-    "image/svg+xml": ".svg",
-    "image/webp": ".webp",
-    "text/plain": ".txt",
-    "text/html": ".html",
-    "text/csv": ".csv",
-    "application/json": ".json",
-    "application/zip": ".zip",
-  };
-  return map[ct] ?? "";
-}
