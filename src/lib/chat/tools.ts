@@ -222,5 +222,81 @@ export function buildChatTools(args: { orgId: string; actorAgent: string }) {
         return { item: updated };
       },
     }),
+
+    // ─── Phase 6: Agent Operating Instructions ────────────────────────
+    get_operating_instructions: tool({
+      description:
+        "Return the user profile + standing instructions every Claude agent should read at session start. Pulls the canonical Profile.md wiki page.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const [page] = await db
+          .select({ title: wikiPages.title, content: wikiPages.content, updatedAt: wikiPages.updatedAt })
+          .from(wikiPages)
+          .where(and(eq(wikiPages.orgId, orgId), eq(wikiPages.title, "Profile")))
+          .limit(1);
+        if (!page) {
+          return {
+            error:
+              "Profile not found. Expected a wiki page titled 'Profile' (synced from Knowledge/Frameworks/Shared Brain/Profile.md).",
+          };
+        }
+        return { title: page.title, updated_at: page.updatedAt, content: page.content };
+      },
+    }),
+
+    record_session_summary: tool({
+      description:
+        "Log a 2-3 sentence summary of what this session accomplished. Creates an activity entry + a session-note wiki page. Call before ending sessions with significant work. Reference work as `[[Page Title]]` for autolinks.",
+      inputSchema: z.object({
+        summary: z.string().min(1),
+        project: z.string().optional(),
+        related_items: z.array(z.string()).optional(),
+      }),
+      execute: async ({ summary, project, related_items }) => {
+        const now = new Date();
+        const dateStamp = now.toISOString().slice(0, 10);
+        const timeStamp = now.toISOString().slice(11, 19);
+        const sessionTitle = `Session ${dateStamp} ${timeStamp} — ${actorAgent}`;
+        const body = [
+          `# ${sessionTitle}`,
+          "",
+          `**Agent:** ${actorAgent}`,
+          `**Date:** ${dateStamp} ${timeStamp}`,
+          project ? `**Project:** ${project}` : null,
+          related_items && related_items.length
+            ? `**Related:** ${related_items.map((r) => `[[${r}]]`).join(", ")}`
+            : null,
+          "",
+          "## Summary",
+          "",
+          summary,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const [created] = await db
+          .insert(wikiPages)
+          .values({ orgId, title: sessionTitle, content: body })
+          .returning();
+        await logActivity({
+          orgId,
+          actorAgent,
+          action: "session_summary",
+          entityType: "wiki_page",
+          entityId: created.id,
+          summary: `[${actorAgent}] ${project ? `(${project}) ` : ""}${summary.slice(0, 200)}`,
+        });
+        try {
+          await indexEntityLinks({
+            orgId,
+            source: { type: "wiki_page", id: created.id },
+            body,
+          });
+        } catch {
+          /* swallow — non-fatal */
+        }
+        return { recorded: true, wiki_page: { id: created.id, title: created.title } };
+      },
+    }),
   } as const;
 }

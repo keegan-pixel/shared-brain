@@ -410,6 +410,114 @@ export function registerTools(server: McpServer, ctx: McpContext) {
     },
   );
 
+  // ─── PHASE 6: AGENT OPERATING INSTRUCTIONS ─────────────────────────────
+
+  server.tool(
+    "get_operating_instructions",
+    "Returns the user profile + standing instructions every Claude agent should read at session start. The canonical doc lives in the vault at `Knowledge/Frameworks/Shared Brain/Profile.md` and is mirrored to the platform via vault sync. Call this at the start of every session when connected to Shared Brain.",
+    {},
+    async () => {
+      // Look up the Profile wiki page by title. Vault sync uses the file's
+      // basename (without .md) as the title — so "Profile.md" → "Profile".
+      const [page] = await db
+        .select({ title: wikiPages.title, content: wikiPages.content, updatedAt: wikiPages.updatedAt })
+        .from(wikiPages)
+        .where(and(eq(wikiPages.orgId, ctx.orgId), eq(wikiPages.title, "Profile")))
+        .limit(1);
+      if (!page) {
+        return ok({
+          error:
+            "Profile not found. Expected a wiki page titled 'Profile' (synced from `Knowledge/Frameworks/Shared Brain/Profile.md`). Either create the file in vault or seed via `Profile` wiki page in the platform.",
+        });
+      }
+      return ok({
+        title: page.title,
+        updated_at: page.updatedAt,
+        content: page.content,
+      });
+    },
+  );
+
+  server.tool(
+    "record_session_summary",
+    "Logs a 2-3 sentence summary of what was accomplished in this session to the activity feed AND creates a session-note wiki page. Call before ending any session with significant work. Reference work as `[[Page Title]]` so autolinks resolve.",
+    {
+      summary: z
+        .string()
+        .min(1)
+        .describe(
+          "2-3 sentence summary of what was done. Reference items as [[Page Title]] for autolinks.",
+        ),
+      project: z
+        .string()
+        .optional()
+        .describe("Optional project name or space to associate with this summary."),
+      related_items: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional list of related entity titles (wiki pages or items) the work touched.",
+        ),
+    },
+    async ({ summary, project, related_items }) => {
+      const now = new Date();
+      const dateStamp = now.toISOString().slice(0, 10);
+      const timeStamp = now.toISOString().slice(11, 19);
+      const sessionTitle = `Session ${dateStamp} ${timeStamp} — ${ctx.actorAgent}`;
+      const body = [
+        `# ${sessionTitle}`,
+        "",
+        `**Agent:** ${ctx.actorAgent}`,
+        `**Date:** ${dateStamp} ${timeStamp}`,
+        project ? `**Project:** ${project}` : null,
+        related_items && related_items.length
+          ? `**Related:** ${related_items.map((r) => `[[${r}]]`).join(", ")}`
+          : null,
+        "",
+        "## Summary",
+        "",
+        summary,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const [created] = await db
+        .insert(wikiPages)
+        .values({
+          orgId: ctx.orgId,
+          title: sessionTitle,
+          content: body,
+        })
+        .returning();
+
+      await logActivity({
+        orgId: ctx.orgId,
+        actorAgent: ctx.actorAgent,
+        action: "session_summary",
+        entityType: "wiki_page",
+        entityId: created.id,
+        summary: `[${ctx.actorAgent}] ${project ? `(${project}) ` : ""}${summary.slice(0, 200)}`,
+      });
+
+      // Best-effort backlink indexing so [[refs]] in the summary resolve
+      // into the connection graph.
+      try {
+        await indexEntityLinks({
+          orgId: ctx.orgId,
+          source: { type: "wiki_page", id: created.id },
+          body,
+        });
+      } catch {
+        /* swallow — non-fatal */
+      }
+
+      return ok({
+        recorded: true,
+        wiki_page: { id: created.id, title: created.title },
+      });
+    },
+  );
+
   server.tool(
     "add_backlink",
     "Manually create a backlink between two entities (item or wiki_page).",
