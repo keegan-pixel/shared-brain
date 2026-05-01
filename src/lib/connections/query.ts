@@ -131,17 +131,21 @@ async function fetchTargetTitles(
   return out;
 }
 
+const PERSISTED_EDGE_LIMIT = 25;
+
 /** Persisted edges (explicit_link + frontmatter_related) for the entity. */
 async function getPersistedEdges(entity: EntityLookup): Promise<Connection[]> {
   const outgoingRows = await db
     .select()
     .from(backlinks)
-    .where(and(eq(backlinks.sourceType, entity.type), eq(backlinks.sourceId, entity.id)));
+    .where(and(eq(backlinks.sourceType, entity.type), eq(backlinks.sourceId, entity.id)))
+    .limit(PERSISTED_EDGE_LIMIT);
 
   const incomingRows = await db
     .select()
     .from(backlinks)
-    .where(and(eq(backlinks.targetType, entity.type), eq(backlinks.targetId, entity.id)));
+    .where(and(eq(backlinks.targetType, entity.type), eq(backlinks.targetId, entity.id)))
+    .limit(PERSISTED_EDGE_LIMIT);
 
   const refs = [
     ...outgoingRows.map((r) => ({ type: r.targetType, id: r.targetId })),
@@ -175,13 +179,42 @@ async function getPersistedEdges(entity: EntityLookup): Promise<Connection[]> {
   return out;
 }
 
-/** Tag overlap — wiki pages that share at least one tag. */
+/**
+ * Structural tags describe what KIND of document something is, not WHAT it's
+ * about. Two unrelated client docs both tagged `client-context` shouldn't be
+ * treated as related; what links them (or doesn't) is the client slug, not
+ * the structural label. Filtered out of the overlap query.
+ */
+const STRUCTURAL_TAGS: ReadonlySet<string> = new Set([
+  "client-context",
+  "client-meeting",
+  "meeting",
+  "coaching",
+  "coaching-client",
+  "concept",
+  "resource",
+  "pipeline",
+  "contact",
+  "partner",
+  "linkedin",
+  "thought-leadership",
+  "website",
+  "viaops-internal",
+  "frameworks",
+  "shared-brain",
+]);
+
+function topicalTags(tags: string[]): string[] {
+  return tags.filter((t) => t && !STRUCTURAL_TAGS.has(t.toLowerCase()));
+}
+
+/** Tag overlap — wiki pages that share at least one *topical* tag. */
 async function getTagOverlap(entity: EntityLookup, limit = 10): Promise<Connection[]> {
   if (entity.type !== "wiki_page") return [];
-  const tags = (entity.metadata as { tags?: string[] }).tags ?? [];
-  if (tags.length === 0) return [];
+  const allTags = (entity.metadata as { tags?: string[] }).tags ?? [];
+  const tags = topicalTags(allTags);
+  if (tags.length === 0) return []; // no meaningful tags → no overlap connections
 
-  // Use jsonb path query: metadata.tags ?| array['a','b']
   const rows = await db.execute(sql`
     select id, title, metadata
     from wiki_pages
@@ -195,25 +228,44 @@ async function getTagOverlap(entity: EntityLookup, limit = 10): Promise<Connecti
     title: string;
     metadata: { tags?: string[] };
   }>;
-  return list.map((r) => {
-    const overlap = tags.filter((t) => (r.metadata.tags ?? []).includes(t));
-    return {
-      kind: "tag_overlap" as const,
-      direction: "mutual" as const,
-      target: { type: "wiki_page" as const, id: r.id, title: r.title },
-      evidence: { sharedTags: overlap },
-    };
-  });
+  return list
+    .map((r) => {
+      // Filter the displayed overlap to only the topical tags too — the
+      // user shouldn't see "shared tags: client-context" as evidence.
+      const overlap = topicalTags(r.metadata.tags ?? []).filter((t) => tags.includes(t));
+      if (overlap.length === 0) return null; // shouldn't happen given the SQL filter, but defensive
+      return {
+        kind: "tag_overlap" as const,
+        direction: "mutual" as const,
+        target: { type: "wiki_page" as const, id: r.id, title: r.title },
+        evidence: { sharedTags: overlap },
+      };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
 }
 
+/**
+ * Folders that contain too many heterogeneous files to make "siblings"
+ * meaningful as a connection signal. Pages under these get no folder-sibling
+ * edges (semantic similarity + tags do a better job for the dense buckets).
+ */
+const NOISY_PARENT_FOLDERS: ReadonlySet<string> = new Set([
+  "Pipeline/",
+  "Meetings/",
+  "Knowledge/",
+]);
+
 /** Folder siblings — wiki pages in the same parent directory. */
-async function getFolderSiblings(entity: EntityLookup, limit = 10): Promise<Connection[]> {
+async function getFolderSiblings(entity: EntityLookup, limit = 8): Promise<Connection[]> {
   if (entity.type !== "wiki_page") return [];
   const filePath = (entity.metadata as { filePath?: string }).filePath;
   if (!filePath) return [];
   const lastSlash = filePath.lastIndexOf("/");
   if (lastSlash < 0) return [];
   const parent = filePath.slice(0, lastSlash + 1);
+
+  // Skip folder-sibling matching for noisy top-level dirs.
+  if (NOISY_PARENT_FOLDERS.has(parent)) return [];
 
   const rows = await db.execute(sql`
     select id, title, metadata
@@ -233,8 +285,8 @@ async function getFolderSiblings(entity: EntityLookup, limit = 10): Promise<Conn
   }));
 }
 
-/** Semantic similar — pgvector cosine distance, top K. */
-async function getSemanticSimilar(entity: EntityLookup, limit = 6): Promise<Connection[]> {
+/** Semantic similar — pgvector cosine distance, top K above threshold. */
+async function getSemanticSimilar(entity: EntityLookup, limit = 5): Promise<Connection[]> {
   if (entity.type !== "wiki_page" || !entity.embedding) return [];
   const literal = `[${entity.embedding.join(",")}]`;
 
@@ -248,9 +300,10 @@ async function getSemanticSimilar(entity: EntityLookup, limit = 6): Promise<Conn
     limit ${limit}
   `);
   const list = (rows.rows ?? rows) as Array<{ id: string; title: string; score: number }>;
-  // Filter very-low-relevance (< 0.5 cosine) — they tend to be noise.
+  // Stricter threshold (0.65) — below this, matches are usually just "same
+  // genre" (e.g. all AI docs, all client comms) rather than actually related.
   return list
-    .filter((r) => Number(r.score) >= 0.5)
+    .filter((r) => Number(r.score) >= 0.65)
     .map((r) => ({
       kind: "semantic_similar" as const,
       direction: "mutual" as const,

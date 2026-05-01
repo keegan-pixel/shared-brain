@@ -84,7 +84,7 @@ export default async function WikiPage({ params }: Props) {
         </article>
       </div>
 
-      <aside className="lg:sticky lg:top-4 lg:self-start">
+      <aside className="lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100svh-6rem)] lg:overflow-y-auto">
         <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
           Connections
         </h2>
