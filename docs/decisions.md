@@ -20,6 +20,65 @@ Newest at the top.
 
 ---
 
+## ADR-021 — Token-efficiency budget for the in-platform chat
+
+**Date:** 2026-05-01 · Phase 5c (post-MVP optimization)
+**Decision:** Treat token usage as a first-class engineering constraint
+for the in-platform chat. Concretely:
+
+1. **Anthropic prompt caching** is enabled on `system` + `tools` via
+   `providerOptions.anthropic.cacheControl: { type: "ephemeral", ttl: "5m" }`
+   in `streamText`. Repeat chat turns within 5 min pay ~0.1× the normal
+   input cost on the static portion.
+2. **Composio meta-tool whitelist**: only `SEARCH_TOOLS`,
+   `GET_TOOL_SCHEMAS`, `MULTI_EXECUTE_TOOL`, `MANAGE_CONNECTIONS` are
+   exposed. Drop `REMOTE_BASH_TOOL`, `REMOTE_WORKBENCH`,
+   `WAIT_FOR_CONNECTIONS` — all unneeded for chat use case, all have
+   massive descriptions.
+3. **Terse description overrides**: Composio's official tool
+   descriptions can be 5K+ tokens each. We override with our own ~50-100
+   token versions; the model learns workflow nuances from the system
+   prompt routing primer instead.
+4. **Tool result truncation cap of 12K chars (~3K tokens)** in
+   `composio-tools.ts`. Larger results (e.g. Gmail fetches of dozens of
+   full-body messages) get array-truncated with a `_truncated` marker
+   telling the model to refine the query. Stops result explosions from
+   replaying every turn.
+5. **System-prompt token discipline section**: tells Claude to default
+   to terse responses, narrow Composio queries, and summarize tool
+   results rather than dumping verbatim.
+
+**Context:** Initial chat hits with Composio integration blew the
+Anthropic 30K-input-tokens-per-minute rate limit on a single calendar
+question. The cause was layered: 200+ tool catalog dump (fixed in
+ADR-020), then verbose meta-tool descriptions, then unbounded tool
+results. The platform is meant to scale to multi-user; cost discipline
+matters from day 1.
+
+**Estimated impact:**
+- Composio tool schemas: ~25K tokens → ~3K (whitelist + terse
+  descriptions)
+- Per-turn cost on cache hit: ~10× cheaper on system+tools
+- Tool-result re-injection: capped at 12K chars vs unbounded
+- Net first-turn budget: ~9K tokens. ~3× headroom under the 30K limit.
+
+**Trade-offs:**
+- Truncation can hide useful context from the model. Mitigated by
+  `_truncated` marker so the model knows to refine the query.
+- Caching adds a 1.25× write cost on the first request. Pays back
+  after one repeat turn.
+- Whitelisting meta-tools drops sandbox/scripting capabilities. If we
+  ever need bulk operations (e.g. "label all 1000 emails X"), we'll
+  unwhitelist `REMOTE_WORKBENCH` for that workflow.
+
+**Future optimizations (not yet implemented):**
+- **Conversation pruning** — drop or summarize old messages once
+  context grows past N turns.
+- **Tier routing** — Haiku for "which tool to call" steps, Sonnet for
+  synthesis. Requires loop architecture change.
+
+---
+
 ## ADR-020 — Composio via universal MCP endpoint with `x-consumer-api-key`
 
 **Date:** 2026-05-01 · Phase 5c (final)

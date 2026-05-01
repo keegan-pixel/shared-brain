@@ -129,6 +129,59 @@ const TERSE_DESCRIPTIONS: Record<string, string> = {
     "List, add, rename, or remove connected accounts. Use action='list' with toolkit slug to see all accounts for a service.",
 };
 
+// Hard cap on bytes a tool result can re-inject into conversation context.
+// Composio's MULTI_EXECUTE results can run 30K+ tokens (full email bodies,
+// base64 attachments, etc.); since results replay every turn, that's a
+// runaway cost. Anything bigger gets truncated with a marker telling the
+// model how to fetch more.
+const TOOL_RESULT_CHAR_CAP = 12_000; // ~3K tokens
+
+function truncateToolResult(toolName: string, result: unknown): unknown {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(result);
+  } catch {
+    return result;
+  }
+  if (serialized.length <= TOOL_RESULT_CHAR_CAP) return result;
+  // Try to preserve structure: if result is an object with a `data` array,
+  // truncate the array rather than chopping mid-string.
+  if (
+    result &&
+    typeof result === "object" &&
+    "data" in (result as Record<string, unknown>)
+  ) {
+    const data = (result as { data: unknown }).data;
+    if (Array.isArray(data)) {
+      // Estimate how many items fit under the cap.
+      const overhead = serialized.length - JSON.stringify(data).length;
+      const perItem = data.length > 0 ? JSON.stringify(data[0]).length : 0;
+      const fit = perItem > 0 ? Math.max(1, Math.floor((TOOL_RESULT_CHAR_CAP - overhead) / perItem)) : 5;
+      const truncated = data.slice(0, fit);
+      return {
+        ...(result as Record<string, unknown>),
+        data: truncated,
+        _truncated: {
+          tool: toolName,
+          original_count: data.length,
+          returned_count: truncated.length,
+          hint: "Result truncated to fit context budget. Re-call with stricter filters or pagination for more.",
+        },
+      };
+    }
+  }
+  // Fallback: chop the JSON string and tell the model.
+  return {
+    _truncated: {
+      tool: toolName,
+      original_chars: serialized.length,
+      returned_chars: TOOL_RESULT_CHAR_CAP,
+      hint: "Result truncated. Re-call with stricter filters for more.",
+    },
+    preview: serialized.slice(0, TOOL_RESULT_CHAR_CAP),
+  };
+}
+
 function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
   const out: ToolSet = {};
   for (const t of tools) {
@@ -143,7 +196,7 @@ function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
             name: t.name,
             arguments: (args ?? {}) as Record<string, unknown>,
           });
-          return result;
+          return truncateToolResult(t.name, result);
         } catch (err) {
           const message = (err as Error).message;
           console.error(

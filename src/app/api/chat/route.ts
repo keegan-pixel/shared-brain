@@ -46,10 +46,14 @@ function buildSystemPrompt(args: {
     `Prefer calling tools to get fresh data over assuming. When the user asks "what's in X" or "show me Y", call the appropriate get tool. When they ask you to do something concrete (move a card, add a task), call the write tool — don't just describe what you'd do.`,
     ``,
     `## Style`,
-    `- Direct, friendly, technically precise. Match Keegan's tone: no fluff, decisions stated plainly.`,
-    `- Use markdown for lists, tables, code. Avoid heavy headings unless the answer is long.`,
-    `- When citing wiki content, use the page title; the platform renders it as a real link automatically when wrapped in \`[[...]]\`.`,
+    `- Direct, friendly, terse. No preamble, no apologies, no "I'd be happy to". Just the answer.`,
+    `- Default to short responses. Skip recapping the question. Bullets > paragraphs. Markdown for lists/tables/code.`,
+    `- Cite wiki pages as \`[[Page Title]]\` — platform renders as real links.`,
     `- For destructive operations (item deletion, mass writes), confirm before executing.`,
+    ``,
+    `## Token discipline`,
+    `- When fetching external data (Gmail / Calendar / Drive via Composio), request only what you need: small max_results, narrow time windows, no full-body fetches when a list is enough.`,
+    `- Don't dump tool results back to the user verbatim — summarize or pull just the relevant fields.`,
   ];
 
   if (context?.page) {
@@ -115,6 +119,15 @@ export async function POST(req: Request) {
     tools,
     // Allow the model to call tools, see results, then respond — multi-step.
     stopWhen: stepCountIs(12),
+    // Cost optimization: mark system prompt + tool definitions as cacheable.
+    // Anthropic caches them for ~5 min; cache reads are 0.1× normal input
+    // cost. For repeat chat turns (most chat use), this is a ~10× saving on
+    // the static portion of every request.
+    providerOptions: {
+      anthropic: {
+        cacheControl: { type: "ephemeral", ttl: "5m" },
+      },
+    },
   });
 
   return result.toUIMessageStreamResponse();
