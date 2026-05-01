@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, FolderKanban, Home } from "lucide-react";
+import { Activity, BookOpen, FolderKanban, Home } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -27,6 +27,12 @@ export async function Sidebar() {
           className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
         >
           <Home className="h-4 w-4" /> Home
+        </Link>
+        <Link
+          href="/activity"
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
+        >
+          <Activity className="h-4 w-4" /> Activity
         </Link>
         <div className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
           Spaces

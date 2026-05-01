@@ -29,6 +29,10 @@ why. Updated at the end of each phase.
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 | dnd-kit drag-and-drop, quick-add per column, detail drawer, 3s polling for AI/sync changes |
 | 4a — Connection graph foundations | ✅ Complete | 2026-04-30 | Schema extension, write-time + read-time edge extraction, panel UI, inline `[[wikilink]]` rendering |
 | Vault cleanup + full sync (Phase C) | ✅ Complete | 2026-04-30 | Vault reorg done; 440 wiki pages + 229 items synced across 6 spaces |
+| 5a — Activity Feed UI | ✅ Complete | 2026-04-30 | /activity page with filters + pagination, topbar bell with unread count, per-space activity surface |
+| 5b — Built-in Claude chat panel | ⏳ Not started | — | Vercel AI SDK + Anthropic; MCP tools wired |
+| 5c — Composio integration | ⏳ Not started | — | Gmail / Calendar / Drive / Granola via Composio |
+| 5d — Live artifacts | ⏳ Not started | — | Inline kanban snapshots / status cards / charts in chat |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
 
@@ -72,6 +76,42 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 5a — Activity Feed UI
+
+**Shipped:** 2026-04-30
+
+### What was built
+- `GET /api/activity` — paginated, filterable by actor, action, space,
+  since/until. Returns total count for pagination.
+- `/activity` page — server-rendered, URL-state filter form (actor /
+  action / space dropdowns + since/until date pickers), pagination
+  controls. Distinct actor + action lists pulled from the DB so filters
+  only show real values.
+- `<ActivityRow>` component — actor badge color-coded by agent
+  (claude-mcp purple, vault-sync blue, user gray, plus colors reserved
+  for claude-desktop / claude-code / cowork when those land), action
+  label, relative timestamp, summary, click-through to entity page.
+- `<ActivityBell>` in the top bar — replaces the disabled stub. Polls
+  `/api/activity?limit=25` every 15s, shows unread count badge based on
+  `localStorage('shared-brain.activity.lastSeen')`. Click toggles a
+  popover with the 12 most recent entries; opening marks all as seen.
+- Sidebar gains an "Activity" link next to Home.
+- Per-space `/spaces/[id]` now shows a "Recent activity" panel with the
+  15 newest entries scoped to that space (matched via
+  `metadata.spaceId` or `entity_type=space`).
+
+### Helpers
+- `src/lib/activity-display.ts` — `actorBadgeClass`, `actionLabel`
+  (raw `sync_wiki_create` → "synced wiki page" etc.), `entityLink`,
+  `relativeTime`. Centralized so the page, bell, and per-space panel
+  all render rows identically.
+
+### Verification
+- Build + typecheck clean
+- All sidebar links resolve (end-of-phase checklist)
 
 ---
 

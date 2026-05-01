@@ -1,10 +1,11 @@
 "use client";
 
-import { Activity, MessageSquare, Search } from "lucide-react";
+import { MessageSquare, Search } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ActivityBell } from "@/components/activity-bell";
 
 export function TopBar() {
   return (
@@ -14,9 +15,7 @@ export function TopBar() {
         <Input placeholder="Search projects, items, wiki..." className="pl-8" disabled />
       </div>
       <div className="ml-auto flex items-center gap-1">
-        <Button variant="ghost" size="icon" aria-label="Activity feed" disabled>
-          <Activity className="h-4 w-4" />
-        </Button>
+        <ActivityBell />
         <Button variant="ghost" size="icon" aria-label="Toggle Claude chat" disabled>
           <MessageSquare className="h-4 w-4" />
         </Button>

@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { items, projects, spaces } from "@/lib/db/schema";
+import { activityFeed, items, projects, spaces } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
+import { ActivityRow } from "@/components/activity-row";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -28,6 +29,23 @@ export default async function SpacePage({ params }: Props) {
     .leftJoin(items, eq(items.projectId, projects.id))
     .where(eq(projects.spaceId, id))
     .groupBy(projects.id);
+
+  // Recent activity scoped to this space — entries that either reference the
+  // space directly or were tagged with this spaceId in metadata.
+  const recentActivity = await db
+    .select()
+    .from(activityFeed)
+    .where(
+      and(
+        eq(activityFeed.orgId, org.id),
+        or(
+          and(eq(activityFeed.entityType, "space"), eq(activityFeed.entityId, id)),
+          sql`(${activityFeed.metadata}->>'spaceId' = ${id})`,
+        )!,
+      ),
+    )
+    .orderBy(desc(activityFeed.createdAt))
+    .limit(15);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -77,6 +95,33 @@ export default async function SpacePage({ params }: Props) {
           </ul>
         )}
       </div>
+
+      {recentActivity.length > 0 && (
+        <div className="rounded-lg border border-[hsl(var(--border))]">
+          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-4 py-3">
+            <h2 className="font-medium">Recent activity</h2>
+            <Link
+              href={`/activity?space=${space.id}`}
+              className="text-xs text-[hsl(var(--muted-foreground))] hover:underline"
+            >
+              View all →
+            </Link>
+          </div>
+          <ul className="divide-y divide-[hsl(var(--border))]">
+            {recentActivity.map((entry) => (
+              <li key={entry.id}>
+                <ActivityRow
+                  entry={{
+                    ...entry,
+                    metadata: (entry.metadata ?? {}) as Record<string, unknown>,
+                  }}
+                  compact
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
