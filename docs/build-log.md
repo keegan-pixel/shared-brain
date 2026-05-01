@@ -131,19 +131,37 @@ the For You scope, the meta-tool surface, and per-call routing.
 ### Verification
 - `npx tsc --noEmit` clean.
 - `npm run build` clean.
-- Live smoke test pending the `COMPOSIO_CONSUMER_API_KEY` value in
-  Vercel env vars.
+- **Live smoke test passed (2026-05-01 16:59 UTC):** "what do my
+  calendars show today" → `COMPOSIO_MULTI_EXECUTE_TOOL` called once,
+  returned clean cross-account view (ViaOps, Coaching, plus
+  shared-read CoC calendars for Matt + Patti). No rate limit, no
+  hallucinations. Logs:
+  ```
+  [composio] tools/list returned 7 tools. meta-tools: 7.
+    enabled (after whitelist): 4. surface: META (good)
+  [composio] enabled tools: COMPOSIO_MANAGE_CONNECTIONS,
+    COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_SEARCH_TOOLS,
+    COMPOSIO_GET_TOOL_SCHEMAS
+  ```
 
-### Friction encountered
-- Composio's "API Key" terminology overloaded across two surfaces with
-  different prefixes and zero overlap (`ck_` consumer vs `ak_`
+### Friction encountered (worth remembering)
+- Composio's "API Key" terminology is overloaded across two surfaces
+  with different prefixes and zero overlap (`ck_` consumer vs `ak_`
   platform vs `uak_` CLI session). UI doesn't disambiguate well.
 - The right auth header was `x-consumer-api-key`, not the more obvious
-  `Authorization: Bearer` we tried first. Took a screenshot from the
-  user's Composio dashboard to spot it.
-- AI SDK v6 dropped `experimental_createMCPClient`, so the MCP SDK's
-  Client gets used directly — fine, since it's already a dependency
-  for the platform's own MCP server.
+  `Authorization: Bearer` we tried first.
+- The same MCP endpoint serves two completely different surfaces — 7
+  meta-tools (good) or 200+ static catalog (bad) — gated by the
+  `clientInfo.name` field in the MCP `initialize` handshake. We send
+  `"Claude"` to get the meta-tools surface; any other name gets the
+  catalog dump (~30K tokens).
+- AI SDK v6 dropped `experimental_createMCPClient`, so we use the MCP
+  SDK's Client directly — already a dependency for the platform's own
+  MCP server.
+- Even with the meta-tools surface, Composio's tool descriptions are
+  enormous (REMOTE_WORKBENCH alone is ~5K tokens of Python sandbox
+  guidance). We whitelist 4 of the 7 and override descriptions with
+  terse versions. See ADR-021 for the full token-efficiency strategy.
 
 ---
 
