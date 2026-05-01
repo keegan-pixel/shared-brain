@@ -341,29 +341,47 @@ Run this mental check on every message before responding.
 
 ---
 
-## 10. Active State of the World
+## 10. Active State of the World — Derived, Not Static
 
-> **TODO (Phase 6 inputs):** Keegan to refresh this section with
-> current pipeline status, active clients, key projects, pending
-> intros, coaching client list. Last updated March 25, 2026 in the
-> previous CLAUDE.md — content omitted here pending refresh.
->
-> Until refreshed, agents should call platform `search` for
-> `Pipeline/_Index`, recent meeting notes, and active client
-> `_Tasks.md` to get current state.
+This section used to be a manually-curated snapshot of pipeline /
+clients / projects. That doc went stale in days. **Don't read a
+static state doc.** Instead, call:
+
+- **`get_active_state`** (platform MCP / chat tool) — returns every
+  space and project that has at least one item not in `completed`
+  status, with sample open items and entities backlinked to those
+  projects. Auto-stays-fresh from the database; reflects the real
+  current state every time you call it.
+- **`search`** — for fuzzy queries about specific clients, deals, or
+  meeting topics.
+- **`get_recent_activity`** — for "what happened recently" framing.
+
+If the user asks something that needs current world state — "what's
+on my plate?", "who am I talking to?", "what's slipping?", "where's
+the Matt deal at?" — call `get_active_state` first. Don't guess from
+memory.
+
+The principle: the brain's data is the source of truth. Static
+state-of-world docs lie within hours of being written.
 
 ---
 
-## 11. Key People Quick Reference
+## 11. Key People — Derived from Active Work
 
-> **TODO (Phase 6 inputs):** Keegan to refresh. The previous list (15
-> people) was last accurate March 25, 2026 — Cody Backer, Matt Frary,
-> Scott Garber, Greg Kuhfeldt, Jason Webb, Brandee Brown, Todd
-> Grasley, Adam Halpern, JM Arseno, Adae Fonseca, Sam Holland, Jason
-> Altshuler, Vipul, Barbara Nelms.
->
-> Until refreshed, look up specific people by name in `Pipeline/`
-> via the search index.
+Same logic. People who matter right now are people whose contact
+cards are linked from active items / projects. Get them via:
+
+- **`get_active_state`** — the `related` field on each project
+  surfaces backlinked entities, including Pipeline contact cards and
+  related wiki pages.
+- **`get_backlinks`** for a specific project / item — see who's
+  connected to it.
+- **`search`** with the person's name when you need their card
+  directly — the index lookup is faster than scanning a static list.
+
+If the user names a person ("Scott", "Matt", "Brandee"), look them
+up by searching Pipeline first; their contact card has current
+status, last-touch, and notes that the static doc never could.
 
 ---
 

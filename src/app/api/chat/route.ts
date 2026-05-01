@@ -45,7 +45,7 @@ function buildSystemPrompt(args: {
     ``,
     `## Capabilities`,
     `You can call platform tools to read and write the user's workspace:`,
-    `- **Reads:** \`get_org\`, \`get_spaces\`, \`get_projects\`, \`get_items\`, \`search\` (semantic across wiki pages, including extracted text from PDFs/DOCX/XLSX), \`get_recent_activity\`, \`get_operating_instructions\`.`,
+    `- **Reads:** \`get_org\`, \`get_spaces\`, \`get_projects\`, \`get_items\`, \`search\` (semantic across wiki pages, including extracted text from PDFs/DOCX/XLSX), \`get_recent_activity\`, \`get_operating_instructions\`, \`get_active_state\` (every project with open items + their backlinked entities — current world state, auto-fresh).`,
     `- **Writes:** \`create_item\` (creates tasks/notes/files/decisions), \`move_item_status\` (moves kanban cards), \`record_session_summary\` (logs what this session accomplished).`,
     ``,
     `Prefer calling tools to get fresh data over assuming. When the user asks "what's in X" or "show me Y", call the appropriate get tool. When they ask you to do something concrete (move a card, add a task), call the write tool — don't just describe what you'd do.`,

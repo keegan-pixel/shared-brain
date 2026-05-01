@@ -15,6 +15,7 @@ import {
 import { logActivity } from "@/lib/activity";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
 import { indexEntityLinks } from "@/lib/connections/extract";
+import { buildActiveState } from "@/lib/mcp/tools";
 
 /**
  * Build the tool set the in-platform Claude chat panel can use. Same surface
@@ -224,6 +225,22 @@ export function buildChatTools(args: { orgId: string; actorAgent: string }) {
     }),
 
     // ─── Phase 6: Agent Operating Instructions ────────────────────────
+    get_active_state: tool({
+      description:
+        "Snapshot of what's actually live right now: every space/project with at least one open (not `completed`) item, with sample items + entities backlinked to those projects (people in Pipeline/, related notes). Auto-stays-fresh from the database. Call this when you need current world state — not a static doc.",
+      inputSchema: z.object({
+        max_items_per_project: z.number().int().min(1).max(50).optional(),
+        max_related_per_project: z.number().int().min(0).max(50).optional(),
+      }),
+      execute: async ({ max_items_per_project, max_related_per_project }) => {
+        return buildActiveState({
+          orgId,
+          maxItemsPerProject: max_items_per_project,
+          maxRelatedPerProject: max_related_per_project,
+        });
+      },
+    }),
+
     get_operating_instructions: tool({
       description:
         "Return the user profile + standing instructions every Claude agent should read at session start. Pulls the canonical Profile.md wiki page.",

@@ -413,6 +413,35 @@ export function registerTools(server: McpServer, ctx: McpContext) {
   // ─── PHASE 6: AGENT OPERATING INSTRUCTIONS ─────────────────────────────
 
   server.tool(
+    "get_active_state",
+    "Returns the current 'active state of the world' — every space/project that has at least one item not in `completed` status, with the open items + entities backlinked to those projects (people in Pipeline/, related notes, etc.). Replaces a static state-of-world doc; auto-stays-fresh as work progresses. Call to get a snapshot of what's actually live right now.",
+    {
+      max_items_per_project: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .default(8),
+      max_related_per_project: z
+        .number()
+        .int()
+        .min(0)
+        .max(50)
+        .optional()
+        .default(8),
+    },
+    async ({ max_items_per_project = 8, max_related_per_project = 8 }) => {
+      const result = await buildActiveState({
+        orgId: ctx.orgId,
+        maxItemsPerProject: max_items_per_project,
+        maxRelatedPerProject: max_related_per_project,
+      });
+      return ok(result);
+    },
+  );
+
+  server.tool(
     "get_operating_instructions",
     "Returns the user profile + standing instructions every Claude agent should read at session start. The canonical doc lives in the vault at `Knowledge/Frameworks/Shared Brain/Profile.md` and is mirrored to the platform via vault sync. Call this at the start of every session when connected to Shared Brain.",
     {},
@@ -546,6 +575,225 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Snapshot of the user's active state of the world. Defined as: every
+ * project with at least one item where status != 'completed', grouped
+ * under its space, plus the entities backlinked to those projects so
+ * the model has a sense of who/what is connected to active work.
+ *
+ * Pure function on the DB — auto-stays-fresh as items get marked
+ * complete or new ones are added. Replaces the static "Active State of
+ * the World" + "Key People" sections from earlier Phase 6 drafts.
+ */
+export async function buildActiveState(args: {
+  orgId: string;
+  maxItemsPerProject?: number;
+  maxRelatedPerProject?: number;
+}) {
+  const { orgId, maxItemsPerProject = 8, maxRelatedPerProject = 8 } = args;
+
+  // Pull all open items in this org, joined to project + space.
+  const openItems = await db
+    .select({
+      itemId: items.id,
+      itemTitle: items.title,
+      itemStatus: items.status,
+      itemType: items.type,
+      itemUpdatedAt: items.updatedAt,
+      projectId: projects.id,
+      projectName: projects.name,
+      spaceId: spaces.id,
+      spaceName: spaces.name,
+      spaceType: spaces.type,
+    })
+    .from(items)
+    .innerJoin(projects, eq(items.projectId, projects.id))
+    .innerJoin(spaces, eq(projects.spaceId, spaces.id))
+    .where(and(eq(spaces.orgId, orgId), sql`${items.status} != 'completed'`))
+    .orderBy(desc(items.updatedAt));
+
+  // Group items by project; track which projects we've seen.
+  type ProjectBucket = {
+    projectId: string;
+    projectName: string;
+    spaceId: string;
+    spaceName: string;
+    spaceType: string;
+    openCount: number;
+    sampleItems: Array<{
+      id: string;
+      title: string;
+      status: string;
+      type: string;
+      updated_at: Date;
+    }>;
+  };
+  const projectMap = new Map<string, ProjectBucket>();
+  for (const r of openItems) {
+    const existing = projectMap.get(r.projectId);
+    if (existing) {
+      existing.openCount += 1;
+      if (existing.sampleItems.length < maxItemsPerProject) {
+        existing.sampleItems.push({
+          id: r.itemId,
+          title: r.itemTitle,
+          status: r.itemStatus,
+          type: r.itemType,
+          updated_at: r.itemUpdatedAt,
+        });
+      }
+    } else {
+      projectMap.set(r.projectId, {
+        projectId: r.projectId,
+        projectName: r.projectName,
+        spaceId: r.spaceId,
+        spaceName: r.spaceName,
+        spaceType: r.spaceType,
+        openCount: 1,
+        sampleItems: [
+          {
+            id: r.itemId,
+            title: r.itemTitle,
+            status: r.itemStatus,
+            type: r.itemType,
+            updated_at: r.itemUpdatedAt,
+          },
+        ],
+      });
+    }
+  }
+
+  const projectIds = [...projectMap.keys()];
+
+  // For each active project, find related entities via backlinks. We
+  // include both directions (project linked from / linked to). We then
+  // resolve the related entity titles from items + wiki_pages in batch.
+  const allBacklinks =
+    projectIds.length > 0
+      ? await db
+          .select()
+          .from(backlinks)
+          .where(
+            or(
+              and(
+                eq(backlinks.sourceType, "project"),
+                sql`${backlinks.sourceId} = ANY(${projectIds})`,
+              ),
+              and(
+                eq(backlinks.targetType, "project"),
+                sql`${backlinks.targetId} = ANY(${projectIds})`,
+              ),
+            ),
+          )
+      : [];
+
+  // Collect distinct (type, id) pairs for related entities so we can
+  // resolve titles in two batched queries (one for items, one for wiki).
+  const relatedItemIds = new Set<string>();
+  const relatedWikiIds = new Set<string>();
+  for (const b of allBacklinks) {
+    const otherSideType =
+      b.sourceType === "project" && projectIds.includes(b.sourceId)
+        ? b.targetType
+        : b.sourceType;
+    const otherSideId =
+      b.sourceType === "project" && projectIds.includes(b.sourceId)
+        ? b.targetId
+        : b.sourceId;
+    if (otherSideType === "item") relatedItemIds.add(otherSideId);
+    else if (otherSideType === "wiki_page") relatedWikiIds.add(otherSideId);
+  }
+
+  const itemRows = relatedItemIds.size
+    ? await db
+        .select({ id: items.id, title: items.title })
+        .from(items)
+        .where(sql`${items.id} = ANY(${[...relatedItemIds]})`)
+    : [];
+  const wikiRows = relatedWikiIds.size
+    ? await db
+        .select({ id: wikiPages.id, title: wikiPages.title })
+        .from(wikiPages)
+        .where(sql`${wikiPages.id} = ANY(${[...relatedWikiIds]})`)
+    : [];
+  const itemTitle = new Map(itemRows.map((r) => [r.id, r.title]));
+  const wikiTitle = new Map(wikiRows.map((r) => [r.id, r.title]));
+
+  // Attach the resolved related entities to each project.
+  type Related = { kind: "item" | "wiki_page"; id: string; title: string };
+  const relatedByProject = new Map<string, Related[]>();
+  for (const b of allBacklinks) {
+    const projectId =
+      b.sourceType === "project" && projectIds.includes(b.sourceId)
+        ? b.sourceId
+        : b.targetId;
+    const otherType =
+      b.sourceType === "project" && projectIds.includes(b.sourceId)
+        ? b.targetType
+        : b.sourceType;
+    const otherId =
+      b.sourceType === "project" && projectIds.includes(b.sourceId)
+        ? b.targetId
+        : b.sourceId;
+    let title: string | undefined;
+    if (otherType === "item") title = itemTitle.get(otherId);
+    else if (otherType === "wiki_page") title = wikiTitle.get(otherId);
+    if (!title) continue;
+    const list = relatedByProject.get(projectId) ?? [];
+    if (!list.find((r) => r.kind === otherType && r.id === otherId)) {
+      list.push({
+        kind: otherType as "item" | "wiki_page",
+        id: otherId,
+        title,
+      });
+    }
+    relatedByProject.set(projectId, list);
+  }
+
+  // Group projects by space.
+  type SpaceOut = {
+    space: { id: string; name: string; type: string };
+    projects: Array<{
+      id: string;
+      name: string;
+      open_items_count: number;
+      sample_items: ProjectBucket["sampleItems"];
+      related: Related[];
+    }>;
+  };
+  const spaceMap = new Map<string, SpaceOut>();
+  for (const p of projectMap.values()) {
+    const out = spaceMap.get(p.spaceId) ?? {
+      space: { id: p.spaceId, name: p.spaceName, type: p.spaceType },
+      projects: [],
+    };
+    const related = (relatedByProject.get(p.projectId) ?? []).slice(
+      0,
+      maxRelatedPerProject,
+    );
+    out.projects.push({
+      id: p.projectId,
+      name: p.projectName,
+      open_items_count: p.openCount,
+      sample_items: p.sampleItems,
+      related,
+    });
+    spaceMap.set(p.spaceId, out);
+  }
+
+  return {
+    snapshot_at: new Date().toISOString(),
+    active_spaces: [...spaceMap.values()].sort((a, b) =>
+      a.space.name.localeCompare(b.space.name),
+    ),
+    totals: {
+      active_spaces: spaceMap.size,
+      active_projects: projectMap.size,
+      open_items: openItems.length,
+    },
+  };
+}
 
 async function assertSpaceInOrg(orgId: string, spaceId: string) {
   const [row] = await db
