@@ -103,12 +103,39 @@ type McpListedTool = {
   inputSchema?: unknown;
 };
 
+// Whitelist of meta-tools the chat actually uses. Dropping
+// REMOTE_BASH_TOOL, REMOTE_WORKBENCH (Python sandbox — not chat use case),
+// and WAIT_FOR_CONNECTIONS (OAuth setup flow only) saves ~10K tokens of
+// schema overhead per chat turn.
+const ENABLED_META_TOOLS = new Set([
+  "COMPOSIO_SEARCH_TOOLS",
+  "COMPOSIO_GET_TOOL_SCHEMAS",
+  "COMPOSIO_MULTI_EXECUTE_TOOL",
+  "COMPOSIO_MANAGE_CONNECTIONS",
+]);
+
+// Composio's own descriptions for these tools are extremely verbose
+// (multi-page usage guides, examples, error patterns) which inflate the
+// per-turn token cost. We override with terse versions — the model
+// learns the workflow from the system prompt routing primer instead.
+const TERSE_DESCRIPTIONS: Record<string, string> = {
+  COMPOSIO_SEARCH_TOOLS:
+    "Find Composio tool slugs for an external-app task (Gmail, Calendar, Drive, Notion, LinkedIn, Discord, QuickBooks). Call before MULTI_EXECUTE when you don't know the slug. Returns relevant slugs + brief descriptions. Pass `queries` as an array of `{ use_case, known_fields? }`.",
+  COMPOSIO_GET_TOOL_SCHEMAS:
+    "Fetch the input schema for one or more tool slugs. Use after SEARCH if you need the exact argument shape before MULTI_EXECUTE.",
+  COMPOSIO_MULTI_EXECUTE_TOOL:
+    "Execute one or more Composio tools (e.g. send email, list calendar events). Each tool item: `{ tool_slug, arguments, account? }`. **Always pass `account`** for multi-account toolkits (gmail, googlecalendar, googledrive) — see the routing rules in the system prompt.",
+  COMPOSIO_MANAGE_CONNECTIONS:
+    "List, add, rename, or remove connected accounts. Use action='list' with toolkit slug to see all accounts for a service.",
+};
+
 function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
   const out: ToolSet = {};
   for (const t of tools) {
     const schema = (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>;
+    const description = TERSE_DESCRIPTIONS[t.name] ?? t.description;
     out[t.name] = dynamicTool({
-      description: t.description,
+      description,
       inputSchema: jsonSchema(schema as never),
       execute: async (args) => {
         try {
@@ -159,29 +186,20 @@ export async function getComposioTools(): Promise<ToolSet> {
     const metaTools = rawTools.filter((t) => t.name.startsWith("COMPOSIO_"));
     const isMetaSurface = metaTools.length > 0 && metaTools.length === rawTools.length;
     const isCatalogSurface = !isMetaSurface && rawTools.length > 20;
+    // Apply our whitelist — drop the few meta-tools the chat doesn't
+    // need (workbench / bash / wait_for_connections) to keep tool-schema
+    // tokens well under 30K per turn.
+    const enabledTools = metaTools.filter((t) => ENABLED_META_TOOLS.has(t.name));
 
     console.info(
       `[composio] tools/list returned ${rawTools.length} tools. ` +
         `meta-tools: ${metaTools.length}. ` +
-        `surface: ${isMetaSurface ? "META (good)" : isCatalogSurface ? "CATALOG (bad — too many tools)" : "MIXED/UNKNOWN"}`,
+        `enabled (after whitelist): ${enabledTools.length}. ` +
+        `surface: ${isMetaSurface ? "META (good)" : isCatalogSurface ? "CATALOG (bad)" : "MIXED/UNKNOWN"}`,
     );
-    if (rawTools.length > 0 && rawTools.length <= 30) {
-      console.info(
-        `[composio] tool names:`,
-        rawTools.map((t) => t.name).join(", "),
-      );
-    } else if (isCatalogSurface) {
-      console.warn(
-        `[composio] sample catalog tool names (first 15):`,
-        rawTools.slice(0, 15).map((t) => t.name).join(", "),
-      );
-      console.warn(
-        `[composio] FALLBACK: filtering to COMPOSIO_* meta-tools only to avoid rate limits. ` +
-          `Found ${metaTools.length} matching.`,
-      );
-    }
+    console.info(`[composio] enabled tools:`, enabledTools.map((t) => t.name).join(", "));
 
-    const tools = adaptMcpTools(client, isMetaSurface ? rawTools : metaTools);
+    const tools = adaptMcpTools(client, enabledTools);
     _toolsCache = tools;
     _toolsCacheAt = now;
     return tools;
