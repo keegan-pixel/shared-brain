@@ -29,11 +29,16 @@ why. Updated at the end of each phase.
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 | dnd-kit drag-and-drop, quick-add per column, detail drawer, 3s polling for AI/sync changes |
 | 4a — Connection graph foundations | ✅ Complete | 2026-04-30 | Schema extension, write-time + read-time edge extraction, panel UI, inline `[[wikilink]]` rendering |
 | Vault cleanup + full sync (Phase C) | ✅ Complete | 2026-04-30 | Vault reorg done; 440 wiki pages + 229 items synced across 6 spaces |
+| All-file-type sync | ✅ Complete | 2026-04-30 | PDFs / DOCX / XLSX / images / etc. cataloged as wiki entries with metadata + Obsidian deep-link |
+| F1 — Cloud storage (Vercel Blob) | ✅ Complete | 2026-04-30 | All 109 binary files uploaded to private blob store with auth-gated access |
+| F2 — Content extraction + indexing | ✅ Complete | 2026-04-30 | 147,774 words extracted across 95 files (PDF/DOCX/XLSX/code); embedded for semantic search |
+| F3 — Inline previews | ✅ Complete | 2026-05-01 | `/api/files/[id]` proxy + `/preview` converter; PDFs in iframe, DOCX/XLSX as rendered HTML, images inline |
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 | /activity page with filters + pagination, topbar bell with unread count, per-space activity surface |
-| 5b — Built-in Claude chat panel | ⏳ Not started | — | Vercel AI SDK + Anthropic; MCP tools wired |
-| 5c — Composio integration | ⏳ Not started | — | Gmail / Calendar / Drive / Granola via Composio |
+| 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 | Vercel AI SDK v6 + claude-sonnet-4-5; 8 platform tools wired in; localStorage persistence; current-page context |
+| 5c — Composio integration | ⏳ Not started | — | Gmail / Calendar / Drive / Granola via Composio MCP |
 | 5d — Live artifacts | ⏳ Not started | — | Inline kanban snapshots / status cards / charts in chat |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
+| F4 — Multi-source ingestion | ⏳ Not started | — | Composio Drive watcher, Gmail attachments, manual upload UI |
 | 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
 
 **Live URLs:**
@@ -76,6 +81,141 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 5b — Built-in Claude Chat Panel
+
+**Shipped:** 2026-05-01
+
+### What was built
+- **Server (`/api/chat`)** — Vercel AI SDK v6 + `@ai-sdk/anthropic`,
+  default model `claude-sonnet-4-5` (override via `ANTHROPIC_MODEL_ID`
+  env var). Returns `toUIMessageStreamResponse()` for streaming.
+- **System prompt** auto-includes org name, today's date, capability
+  summary, and current-page context (kind / path / id / title) so the
+  user can say "this page" or "this thing" and Claude knows what they
+  mean.
+- **Tool set** — 8 platform tools defined via AI SDK `tool()`, reusing
+  the same Drizzle queries the MCP server uses:
+  - **Reads:** `get_org`, `get_spaces`, `get_projects`, `get_items`,
+    `search` (semantic, hits extracted PDF/DOCX/XLSX text),
+    `get_recent_activity`
+  - **Writes:** `create_item`, `move_item_status`
+  - Each write logs to `activity_feed` (`actor_agent: claude-builtin`)
+    and runs link extraction on body content.
+- **Multi-step tool loop** — capped at 8 steps via `stopWhen: stepCountIs(8)`.
+  Claude can call a tool, see results, call another, then respond — all
+  in one turn.
+- **Client (`<ChatPanel>`)** — slide-out drawer (max-w-lg) on the right
+  via the existing `Sheet` primitive. `useChat()` from
+  `@ai-sdk/react` v6.
+- **Persistence** — localStorage per browser
+  (`shared-brain.chat.messages`). Hydrate on mount, save on every
+  message change, "Clear" button wipes both.
+- **Tool-call rendering** — compact pills (`toolName · ✓` /
+  `toolName · running`) inside assistant messages, so the user sees
+  what Claude did without it dominating the bubble.
+- **Topbar wiring** — replaced the disabled `MessageSquare` button with
+  the real `<ChatToggleButton>`. `<ChatProvider>` lives in the (app)
+  layout, exposes open/setOpen/toggle.
+
+### Divergences from spec
+1. **No Composio yet.** Spec called for Composio in this phase; split
+   it out as Phase 5c so 5b can ship now with platform-only tools.
+2. **localStorage instead of DB-backed history.** Per-browser is fine
+   for solo MVP; DB persistence comes when we go multi-device or
+   multi-user.
+3. **`claude-sonnet-4-5` instead of `claude-sonnet-4-6`.** 4-6 isn't an
+   Anthropic model id we know exists; 4-5 is current Sonnet. Override
+   trivially via `ANTHROPIC_MODEL_ID`.
+
+### Verification
+- Round-trip from chat: "where's the Shared Brain project at?" → Claude
+  calls `get_spaces` → `search` → `get_projects` → `get_items` and
+  returns a synthesized status. (Was inaccurate on first try because
+  the synced Build Log wiki page was stale — see "Process notes" at
+  the bottom of this doc; doc-sync discipline tightened up.)
+- Build + typecheck clean, `/api/chat` in route output.
+
+### Friction encountered
+- AI SDK v6 dropped the v3-era `input` / `handleInputChange` from
+  `useChat`; now you manage the textarea state manually and call
+  `sendMessage({ text })`. Easy fix once spotted.
+- `convertToModelMessages()` is async in v6; needed `await`.
+- `stopWhen` takes a `StopCondition` not an arrow; use
+  `stepCountIs(N)` helper.
+
+---
+
+## File Storage + Inline Previews (F1 + F2 + F3)
+
+**Shipped:** 2026-04-30 → 2026-05-01
+
+User flagged that ~118 binary files (PDFs, DOCX, XLSX, images, etc.)
+weren't in the platform — only their markdown siblings were. Plus
+"this is non-markdown, no semantic search" message was unacceptable
+for a Shared Brain that needs to be a real source of truth.
+
+Three sub-phases shipped together:
+
+### F1 — Cloud storage (Vercel Blob)
+- New `wiki_pages` columns: `blob_url`, `extracted_text`,
+  `extracted_word_count` (migration 0003).
+- Sync agent uploads bytes to Vercel Blob with `access: "private"`.
+  All ~109 files now live in cloud storage; URLs gated to the project.
+- Hash includes a "blob:0/1" marker so toggling the token invalidates
+  cached entries — re-syncing picks up files that were synced before
+  the token was set.
+
+### F2 — Content extraction + semantic indexing
+- Sync agent extracts plain text per file type:
+  - **PDF** → `pdf-parse` v2 class API
+  - **DOCX** → `mammoth.extractRawText`
+  - **XLSX/XLS/CSV** → SheetJS `sheet_to_csv` per sheet
+  - **txt/md/html/code** → utf8 read (HTML strips tags)
+- Server-side `embed()` uses `extracted_text` (capped at 6K chars to
+  fit the 8K-token limit of `text-embedding-3-small`) — files are now
+  semantic-search citizens alongside markdown pages.
+- Embed call wrapped in try/catch so a single bad input doesn't 500
+  the whole sync run. Failed embeds log a warning; the page still gets
+  created/updated.
+
+### F3 — Inline previews
+- New `/api/files/[id]` proxy. Clerk-auth'd (so signed-in users on
+  any device — including mobile — can fetch). Uses
+  `@vercel/blob.get(url, { access: "private" })` to stream bytes.
+- New `/api/files/[id]/preview` converter: DOCX → `mammoth.convertToHtml`,
+  XLSX/XLS/CSV → `sheet_to_html` per sheet. Returns `{ html, sheets }`.
+- New `<FilePreview>` client component:
+  - **Image** → `<img src={proxyUrl}>`
+  - **PDF** → `<iframe src={proxyUrl}>` (browser native viewer)
+  - **DOCX / XLSX / XLS / CSV** → fetched HTML with `.file-preview-html` CSS
+  - **Other** → "no inline preview" + Download
+  - Always: Download button, Open in browser, Open in Obsidian
+- Wiki tree (`/wiki`) differentiates files visually — Paperclip /
+  FileImage / FileSpreadsheet icons + uppercase ext chip.
+
+### Stats after the run
+- 109 files in private Vercel Blob
+- 95 files with extracted text (147,774 words total)
+- 4 XP Flow invoices: 314 / 120 / 686 / 116 words extracted
+- Search "Dustin Howes APEX" hits the agent framework docs AND
+  invoice INV-2026-003 (line-item match)
+
+### Friction encountered
+- First upload pass failed because the blob store was set to private
+  and our agent used `access: "public"`. Switched to `private`.
+- pdf-parse v2 has a class-based API (`new PDFParse({ data }).getText()`)
+  not the v1 bare function we initially wrote against. Silent fail
+  caused 0-word extractions until we switched.
+- `head()` + manual `fetch()` of the returned URL doesn't work for
+  private blobs (auth context lost). Fix: `get(url, { access: "private" })`
+  which the SDK auths via `BLOB_READ_WRITE_TOKEN` and returns a real
+  ReadableStream we pipe back.
+- Vercel asked for an MFA recovery code to view the blob token in the
+  dashboard. The CLI flow (`vercel env pull`) and Storage-tab
+  `.env.local` reveal both worked without the code.
 
 ---
 

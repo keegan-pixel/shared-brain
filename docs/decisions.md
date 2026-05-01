@@ -20,6 +20,87 @@ Newest at the top.
 
 ---
 
+## ADR-017 — In-platform chat tools defined directly, not via MCP roundtrip
+
+**Date:** 2026-05-01 · Phase 5b
+**Decision:** The built-in chat panel's tools are defined as AI SDK
+`tool()` definitions inside the platform code (`src/lib/chat/tools.ts`),
+calling the same Drizzle queries the MCP server uses — not by
+connecting an MCP client to our own `/api/mcp` endpoint.
+
+**Context:** Two ways to give the in-platform chat the same capabilities
+as Claude Desktop's MCP connection:
+1. Use `experimental_createMCPClient` from AI SDK to connect over HTTP
+   to our own `/api/mcp` (with Bearer auth)
+2. Define the tools directly server-side, sharing the same DB code
+
+**Rejected:** Option 1. Roundtripping through HTTP for tools that already
+have direct DB access in the same process is wasted latency. Bearer auth
+inside the same Vercel function context is theatre. The MCP server stays
+as the integration point for *external* clients (Claude Desktop, Code,
+Cowork); the in-platform chat speaks directly to the same data layer.
+
+**Trade-off:** Two definitions of the same tool surface — one in
+`src/lib/mcp/tools.ts` (registers with `McpServer.tool()`), one in
+`src/lib/chat/tools.ts` (AI SDK `tool()`). When we add a new tool, both
+sides need it. Acceptable for the surface size; if it grows, extract a
+shared core layer that both wrap.
+
+---
+
+## ADR-016 — Vercel Blob `get()` for private-blob streaming
+
+**Date:** 2026-05-01 · Phase F3
+**Decision:** Server-side proxy at `/api/files/[id]` uses
+`get(url, { access: "private" })` from `@vercel/blob` to stream
+private-blob bytes back to the authenticated client.
+
+**Context:** First implementation tried `head(url)` to get a signed
+`downloadUrl`, then plain `fetch()` against it. That doesn't work for
+private blobs — the URLs lose their auth context outside the SDK.
+Both PDF iframes and DOCX previews 502'd.
+
+**Rejected:**
+- `head()` + manual `fetch()` — broken (above).
+- Manual `Authorization: Bearer ${BLOB_READ_WRITE_TOKEN}` header on
+  fetch — undocumented, fragile.
+- Switching the store to public access — would break the security
+  model for invoices/MSAs ("URL-as-secret" is too weak for sensitive
+  artifacts).
+
+**Trade-off:** Each preview hits the SDK + a server-side fetch instead
+of redirecting the browser to a signed URL — slightly more bandwidth
+through the platform. Mitigated by 60s `Cache-Control: private`. Worth
+it for a clean security story (private blobs, Clerk auth at the proxy,
+URLs never reach the client).
+
+---
+
+## ADR-015 — Files are wiki entries, not a separate table
+
+**Date:** 2026-04-30 · Phase F1
+**Decision:** Non-markdown files (PDFs, DOCX, XLSX, images, etc.) sync
+as `wiki_pages` rows with three new columns (`blob_url`,
+`extracted_text`, `extracted_word_count`), not as a separate
+`files` table.
+
+**Context:** Two reasonable models:
+- New `files` table with its own schema, lookups, UI surface, etc.
+- Reuse `wiki_pages` — every node in the wiki tree is the same shape;
+  files just have additional columns + a different content rendering.
+
+**Rejected:** Separate table. It would mean parallel everything —
+parallel sync log entries, parallel connection-graph plumbing, parallel
+search, parallel UI. Doubling the surface for what is functionally "a
+node in the wiki with a file attached."
+
+**Trade-off:** `wiki_pages.content` for files is now synthetic markdown
+(filename, type, size, Obsidian link, preview snippet) rather than
+authored content. Acceptable; it gives users something glanceable in
+the wiki tree without forcing a new view. Backlinks resolve naturally.
+
+---
+
 ## ADR-014 — Meeting notes are wiki pages, not activity-feed entries
 
 **Date:** 2026-04-30 · Phase C

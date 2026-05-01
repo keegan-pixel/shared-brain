@@ -34,9 +34,11 @@ related: "[[AI-Native PM Platform Vision]]"
 | 4a — Connection Graph Foundations | ✅ Complete | 2026-04-30 |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — |
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 |
-| 5b — Built-in Claude chat panel | ⏳ Not started | — |
+| File storage + extraction + previews (F1+F2+F3) | ✅ Complete | 2026-04-30 → 2026-05-01 |
+| 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 |
 | 5c — Composio integration | ⏳ Not started | — |
 | 5d — Live artifacts | ⏳ Not started | — |
+| F4 — Multi-source ingestion | ⏳ Not started | — |
 
 ---
 

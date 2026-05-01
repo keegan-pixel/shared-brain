@@ -68,6 +68,77 @@ npm run build
 
 ---
 
+## Built-in Claude chat panel (Phase 5b)
+
+### Toggle and use
+Click the message-square icon in the top right of the platform. The
+slide-out chat panel hooks into Claude (default `claude-sonnet-4-5`)
+with the platform's full read+write tool set. Persistence is
+per-browser localStorage (`shared-brain.chat.messages`).
+
+### Required env vars
+- `ANTHROPIC_API_KEY` — server-side only. **Must be set in Vercel
+  env vars** (Production / Preview / Development). Local `.env.local`
+  doesn't matter for the deployed chat — only the Vercel side.
+- `ANTHROPIC_MODEL_ID` (optional) — override the default model.
+  Examples: `claude-sonnet-4-5`, `claude-opus-4-5`, `claude-haiku-4-5`.
+
+### Tools the chat can call
+Reads: `get_org`, `get_spaces`, `get_projects`, `get_items`, `search`,
+`get_recent_activity`. Writes: `create_item`, `move_item_status`. Each
+write logs an activity entry with `actor_agent: "claude-builtin"`.
+
+Defined in `src/lib/chat/tools.ts`. To add a new tool:
+1. Define it via `tool({ description, inputSchema, execute })`
+2. Drop it into the returned object
+3. Mirror it in `src/lib/mcp/tools.ts` if you also want Claude Desktop
+   / Code / Cowork to have it (per ADR-017 we maintain both surfaces).
+
+### Debugging
+- 401 on `/api/chat`: not signed in to Clerk. Sign in.
+- 500 "ANTHROPIC_API_KEY is not configured": add the key to Vercel
+  env vars and redeploy.
+- Chat returns stale data: the wiki page Claude searched is out of
+  date. Re-sync the relevant vault file (`npm run sync:once`).
+
+---
+
+## File storage + previews (F1 / F2 / F3)
+
+### Where files live
+Synced binaries (PDF, DOCX, XLSX, images, code, etc.) upload to a
+Vercel Blob store named `shared-brain-files` with `access: "private"`.
+The store URL pattern is opaque to the client; the platform proxies via
+`/api/files/[id]`.
+
+### Required env vars
+- `BLOB_READ_WRITE_TOKEN` — set automatically when you connect the
+  blob store to the project in the Vercel Storage tab. Pull locally
+  via `vercel env pull .env.local`.
+
+### Re-extracting / re-uploading after upgrades
+The agent's hash includes a version prefix (`v3|...`) and a blob
+marker (`blob:1`) so when extraction logic or upload semantics change,
+cached entries get reprocessed automatically on the next sync run.
+Bump the version prefix in `agent/src/sync.ts` if you ever need to
+force a full file re-process.
+
+### Preview rendering
+- **PDF** → browser native viewer in `<iframe src="/api/files/[id]" />`
+- **DOCX** → server-side `mammoth.convertToHtml`, rendered with
+  `.file-preview-html` styles
+- **XLSX/XLS/CSV** → SheetJS `sheet_to_html` per sheet
+- **Images** → `<img src="/api/files/[id]" />`
+- **Other** → "no inline preview" placeholder + Download
+
+### Privacy model
+Private blobs + Clerk-gated proxy. Anyone signed in to the platform
+(currently just Keegan) can fetch files from any device. The raw blob
+URLs never reach the client. To share a file externally we'd need to
+add a per-file signed-share-link feature.
+
+---
+
 ## Vault sync
 
 ### Run a one-time full scan (no daemon, just sync once and exit)
