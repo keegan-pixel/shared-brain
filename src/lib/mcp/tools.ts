@@ -12,6 +12,7 @@ import {
   organizations,
   projects,
   spaces,
+  vaultSyncLog,
   wikiPages,
 } from "@/lib/db/schema";
 import { logActivity } from "@/lib/activity";
@@ -446,17 +447,11 @@ export function registerTools(server: McpServer, ctx: McpContext) {
     "Returns the user profile + standing instructions every Claude agent should read at session start. The canonical doc lives in the vault at `Knowledge/Frameworks/Shared Brain/Profile.md` and is mirrored to the platform via vault sync. Call this at the start of every session when connected to Shared Brain.",
     {},
     async () => {
-      // Look up the Profile wiki page by title. Vault sync uses the file's
-      // basename (without .md) as the title — so "Profile.md" → "Profile".
-      const [page] = await db
-        .select({ title: wikiPages.title, content: wikiPages.content, updatedAt: wikiPages.updatedAt })
-        .from(wikiPages)
-        .where(and(eq(wikiPages.orgId, ctx.orgId), eq(wikiPages.title, "Profile")))
-        .limit(1);
+      const page = await getProfilePage(ctx.orgId);
       if (!page) {
         return ok({
           error:
-            "Profile not found. Expected a wiki page titled 'Profile' (synced from `Knowledge/Frameworks/Shared Brain/Profile.md`). Either create the file in vault or seed via `Profile` wiki page in the platform.",
+            "Profile not found. Expected `Knowledge/Frameworks/Shared Brain/Profile.md` to be synced into the platform. Run `npm run sync:once` from the agent dir.",
         });
       }
       return ok({
@@ -575,6 +570,35 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Canonical vault path for the Profile / Operating Instructions doc.
+ * The wiki page's title is whatever the user puts in frontmatter, so
+ * we look up by file path via vault_sync_log instead — that's stable
+ * regardless of how the user renames the doc internally.
+ */
+const PROFILE_VAULT_PATH = "Knowledge/Frameworks/Shared Brain/Profile.md";
+
+export async function getProfilePage(orgId: string) {
+  // vault_sync_log maps file_path → wiki_pages.id deterministically.
+  const [row] = await db
+    .select({
+      id: wikiPages.id,
+      title: wikiPages.title,
+      content: wikiPages.content,
+      updatedAt: wikiPages.updatedAt,
+    })
+    .from(vaultSyncLog)
+    .innerJoin(wikiPages, eq(vaultSyncLog.entityId, wikiPages.id))
+    .where(
+      and(
+        eq(vaultSyncLog.filePath, PROFILE_VAULT_PATH),
+        eq(wikiPages.orgId, orgId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
 
 /**
  * Snapshot of the user's active state of the world. Defined as: every

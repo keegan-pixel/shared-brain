@@ -15,7 +15,7 @@ import {
 import { logActivity } from "@/lib/activity";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
 import { indexEntityLinks } from "@/lib/connections/extract";
-import { buildActiveState } from "@/lib/mcp/tools";
+import { buildActiveState, getProfilePage } from "@/lib/mcp/tools";
 
 /**
  * Build the tool set the in-platform Claude chat panel can use. Same surface
@@ -246,15 +246,11 @@ export function buildChatTools(args: { orgId: string; actorAgent: string }) {
         "Return the user profile + standing instructions every Claude agent should read at session start. Pulls the canonical Profile.md wiki page.",
       inputSchema: z.object({}),
       execute: async () => {
-        const [page] = await db
-          .select({ title: wikiPages.title, content: wikiPages.content, updatedAt: wikiPages.updatedAt })
-          .from(wikiPages)
-          .where(and(eq(wikiPages.orgId, orgId), eq(wikiPages.title, "Profile")))
-          .limit(1);
+        const page = await getProfilePage(orgId);
         if (!page) {
           return {
             error:
-              "Profile not found. Expected a wiki page titled 'Profile' (synced from Knowledge/Frameworks/Shared Brain/Profile.md).",
+              "Profile not found. Expected Knowledge/Frameworks/Shared Brain/Profile.md to be synced. Run `npm run sync:once`.",
           };
         }
         return { title: page.title, updated_at: page.updatedAt, content: page.content };

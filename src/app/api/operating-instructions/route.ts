@@ -1,7 +1,5 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/lib/db/client";
-import { wikiPages } from "@/lib/db/schema";
 import { resolveOrgContext } from "@/lib/mcp/context";
+import { getProfilePage } from "@/lib/mcp/tools";
 
 /**
  * GET /api/operating-instructions
@@ -39,15 +37,7 @@ export async function GET(req: Request) {
   }
 
   const ctx = await resolveOrgContext("operating-instructions-endpoint");
-  const [page] = await db
-    .select({
-      title: wikiPages.title,
-      content: wikiPages.content,
-      updatedAt: wikiPages.updatedAt,
-    })
-    .from(wikiPages)
-    .where(and(eq(wikiPages.orgId, ctx.orgId), eq(wikiPages.title, "Profile")))
-    .limit(1);
+  const page = await getProfilePage(ctx.orgId);
 
   if (!page) {
     return new Response(
