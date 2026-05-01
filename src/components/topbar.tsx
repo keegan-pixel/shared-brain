@@ -1,11 +1,11 @@
 "use client";
 
-import { MessageSquare, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ActivityBell } from "@/components/activity-bell";
+import { ChatToggleButton } from "@/components/chat/chat-toggle-button";
 
 export function TopBar() {
   return (
@@ -16,9 +16,7 @@ export function TopBar() {
       </div>
       <div className="ml-auto flex items-center gap-1">
         <ActivityBell />
-        <Button variant="ghost" size="icon" aria-label="Toggle Claude chat" disabled>
-          <MessageSquare className="h-4 w-4" />
-        </Button>
+        <ChatToggleButton />
         <ThemeToggle />
         <div className="ml-2">
           <UserButton />
