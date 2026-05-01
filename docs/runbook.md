@@ -105,54 +105,58 @@ Defined in `src/lib/chat/tools.ts`. To add a new tool:
 
 ## External tools via Composio (Phase 5c)
 
-The in-platform chat uses the `@composio/core` SDK (not the static MCP
-URL) to call Composio. We expose four meta-tools to Claude —
-`composio_search_tools`, `composio_get_tool_schema`, `composio_execute`,
-`composio_list_connections` — mirroring the surface that `composio`
-CLI gives Claude Desktop. The model picks a tool slug, picks an
-`account` from the routing table, and calls.
+The in-platform chat connects to Composio's **universal MCP endpoint**
+(`https://connect.composio.dev/mcp`) authenticated with a **consumer
+API key** (`ck_...`) from your Composio "For You" account. That gives
+the chat the same meta-tool surface Claude Desktop gets when installed
+via Composio's CLI: `COMPOSIO_SEARCH_TOOLS`, `COMPOSIO_GET_TOOL_SCHEMAS`,
+`COMPOSIO_MULTI_EXECUTE_TOOL`, `COMPOSIO_MANAGE_CONNECTIONS`, plus
+workbench/wait/bash variants. The `account` parameter on
+`MULTI_EXECUTE_TOOL` lets the chat route per call across all 19
+connected accounts.
 
 ### Required env vars
-- `COMPOSIO_API_KEY` — your Composio user-API-key. Find it in the
-  Composio dashboard (Settings → API Keys) or in
-  `~/.composio/config.json` after `composio login`. The chat will
-  fall back to platform-only tools without erroring if this is unset.
+- `COMPOSIO_CONSUMER_API_KEY` — the `ck_...` key from Composio's
+  Sessions page. The chat falls back to platform-only tools without
+  erroring if this is unset.
+- `COMPOSIO_MCP_URL` (optional) — defaults to
+  `https://connect.composio.dev/mcp`.
 
-### Why not the MCP URL surface?
-Composio's static MCP URL exposes 200+ pre-baked tool slugs but locks
-calls to whichever connection is flagged `is_default` per toolkit, with
-no per-call routing parameter. With 6 Gmail / 6 calendar / 4 Drive
-accounts, that's a non-starter — see ADR-019 for the full reasoning.
+### Why not Composio's developer / Platform SDK?
+Composio has two scopes:
+- **"For You"** — your personal connections (the 19 accounts).
+  Surfaced via the universal MCP endpoint with `x-consumer-api-key`.
+- **"Platform"** — a developer multi-tenant project where YOU manage
+  auth configs and orchestrate OAuth for other users. Different API
+  key (`ak_...`), different scope, none of your personal connections.
+
+The `@composio/core` SDK targets the Platform side, so it can't see
+your "For You" connections. See ADR-020 for the full reasoning.
 
 ### Wiring
-- `src/lib/chat/composio-tools.ts` — initializes `Composio({ apiKey })`
-  once per process and exposes the 4 meta-tools.
-- Each meta-tool wraps a SDK call:
-  - `tools.getRawComposioTools` (search)
-  - `tools.getRawComposioToolBySlug` (schema)
-  - `tools.execute` (run, with `connectedAccountId` for routing)
-  - `connectedAccounts.list` (account discovery)
-- `composioPromptHint()` injects a compressed routing table into the
-  system prompt so Claude picks the right `account` per call without
-  reading the wiki every time.
+- `src/lib/chat/composio-tools.ts` — opens an MCP client via
+  `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport` with
+  the `x-consumer-api-key` header set. Lists tools at cold start
+  (5-min TTL cache) and adapts each into an AI SDK `dynamicTool`.
+- `composioPromptHint()` injects a routing primer into the system
+  prompt so Claude picks the right `account` per call.
 
 ### Adding/removing toolkits
-- Connect or disconnect via Composio's dashboard.
-- For new toolkits, also add the slug to the `ALL_TOOLKITS` array in
-  `composio-tools.ts` so `composio_search_tools` returns its tools when
-  no toolkit filter is passed.
+- Connect or disconnect via Composio's "For You" dashboard
+  (Connect Apps).
+- The MCP endpoint reflects the change automatically; the chat picks
+  it up on its next 5-min cache refresh (or restart).
 - Update `Composio Mapping.md` with the new account IDs / routing rules.
 
 ### Debugging
-- Chat falls back to "I don't have access": `COMPOSIO_API_KEY` missing
-  or wrong in Vercel. Check Settings → Environment Variables.
-- Composio call errors: surfaced both in the chat UI (red error pill
-  with the message) and in Vercel runtime logs as
-  `[composio] <method> failed: ...`.
-- Wrong account: tweak `SHARED_BRAIN_ACCOUNT_DEFAULTS` in
-  `composio-tools.ts` or update the routing primer in
-  `composioPromptHint()`. The wiki doc `Composio Mapping.md` is the
-  source of truth Claude reads.
+- Chat falls back to "I don't have access": `COMPOSIO_CONSUMER_API_KEY`
+  missing or wrong in Vercel. Check Settings → Environment Variables.
+- MCP handshake errors: logged in Vercel as
+  `[composio] MCP tools fetch failed: <message>`.
+- Tool execute errors: surfaced inline in the chat (red error pill)
+  and in Vercel logs as `[composio] tool '<NAME>' call failed: ...`.
+- Wrong account picked: update the routing primer in
+  `composioPromptHint()` and `Composio Mapping.md`.
 
 ---
 

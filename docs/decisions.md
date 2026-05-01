@@ -20,7 +20,50 @@ Newest at the top.
 
 ---
 
-## ADR-019 — Reverse course on ADR-018: back to `@composio/core` SDK with meta-tools
+## ADR-020 — Composio via universal MCP endpoint with `x-consumer-api-key`
+
+**Date:** 2026-05-01 · Phase 5c (final)
+**Decision:** Connect to `https://connect.composio.dev/mcp` via the MCP
+SDK's `StreamableHTTPClientTransport`, authenticated by the consumer
+API key (`ck_...`) in `x-consumer-api-key`. That endpoint exposes the
+meta-tool surface (`COMPOSIO_SEARCH_TOOLS`,
+`COMPOSIO_MULTI_EXECUTE_TOOL`, etc.) with per-call account routing.
+
+**Context:** Composio has two scopes that look like the same product
+but aren't:
+- **"For You"** — the user's personal account, where their 19
+  connected services live. Surfaced via the universal MCP endpoint.
+  Auth: `x-consumer-api-key: ck_...`.
+- **"Platform"** — a developer project model for orchestrating OAuth
+  for other people. Different scope, different API key (`ak_...`),
+  zero overlap with the user's personal connections. The `@composio/core`
+  SDK targets this side.
+
+ADR-019's pivot to the SDK landed us on the Platform side and
+authentication failed because the connections didn't exist there. The
+"For You" side is MCP-only by design — that's the surface Claude
+Desktop / Code use when installed via the Composio CLI.
+
+The auth header is `x-consumer-api-key`, not `Authorization: Bearer`.
+ADR-018's first MCP attempt failed partly on this: I sent Bearer auth,
+which works for some Composio endpoints but not the consumer MCP one.
+
+**Rejected:**
+- Composio Platform SDK (ADR-019). Wrong scope; would require
+  re-creating every connection as a developer-managed OAuth flow.
+- Static MCP URL with default-account routing (ADR-018). Locks 14 of
+  19 accounts out.
+- Multiple MCP URLs per persona. Operationally messy.
+
+**Trade-off:** None worth flagging. Same MCP plumbing the platform's
+own MCP server uses; same surface Claude Desktop has. Tool list cached
+for 5 min so adding a new connection takes up to 5 min to surface.
+
+**Status:** ADR-018 and ADR-019 both superseded.
+
+---
+
+## ADR-019 — Reverse course on ADR-018: back to `@composio/core` SDK with meta-tools *(superseded by ADR-020)*
 
 **Date:** 2026-05-01 · Phase 5c (revision)
 **Decision:** Drop the `COMPOSIO_MCP_URL` integration from ADR-018.

@@ -194,13 +194,13 @@ Or manually:
 
 ## How Composio is wired into the platform (Phase 5c)
 
-The in-platform chat uses the **`@composio/core` SDK** authenticated
-with `COMPOSIO_API_KEY` (your Composio user-API-key). It exposes four
-meta-tools to Claude — `composio_search_tools`, `composio_get_tool_schema`,
-`composio_execute`, `composio_list_connections` — mirroring the surface
-the Composio CLI gives Claude Desktop / Code. Per-call account routing
-is supported via the `account` parameter on `composio_execute`. The
-chat can:
+The in-platform chat connects to Composio's universal MCP endpoint
+(`https://connect.composio.dev/mcp`) authenticated with a
+**consumer API key** (`ck_...` from Settings → Sessions) sent in the
+`x-consumer-api-key` header. That surface exposes the meta-tools —
+`COMPOSIO_SEARCH_TOOLS`, `COMPOSIO_MULTI_EXECUTE_TOOL`, etc. — with
+per-call routing via `account` on `MULTI_EXECUTE_TOOL`. Same surface
+the Composio CLI gives Claude Desktop. The chat can:
 
 - Read and send Gmail across all 6 accounts
 - Check / create / edit calendar events across all 6 calendars
@@ -209,16 +209,16 @@ chat can:
 - Post to LinkedIn, Discord, QuickBooks
 
 Code paths:
-- `src/lib/chat/composio-tools.ts` — initializes `Composio({ apiKey })`
-  once per process; defines the 4 meta-tools backed by
-  `tools.getRawComposioTools`, `tools.getRawComposioToolBySlug`,
-  `tools.execute`, and `connectedAccounts.list`.
+- `src/lib/chat/composio-tools.ts` — opens an MCP client via
+  `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport` with
+  `x-consumer-api-key` set, lists tools at cold start, and adapts each
+  into an AI SDK `dynamicTool`.
 - `src/app/api/chat/route.ts` — merges Composio meta-tools with
   platform tools and passes both to `streamText`.
 
 The system prompt includes a compressed version of the routing rules
-above so Claude picks the right `account` for each call without being
-told each time, and points to this wiki page for the full table.
+above so Claude picks the right `account` for each `MULTI_EXECUTE_TOOL`
+call without being told each time.
 
 ---
 
