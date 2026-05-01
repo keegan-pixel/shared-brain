@@ -137,11 +137,26 @@ export async function getComposioTools(): Promise<ToolSet> {
     const client = await getClient();
     const listed = await client.listTools();
     const rawTools = (listed.tools ?? []) as McpListedTool[];
-    const tools = adaptMcpTools(client, rawTools);
-    console.info(
-      `[composio] loaded ${rawTools.length} MCP tools:`,
-      rawTools.map((t) => t.name).join(", "),
-    );
+
+    // Composio's universal MCP endpoint returns its ENTIRE tool catalog
+    // (200+ slugs across every connected app) plus the 7 COMPOSIO_*
+    // meta-tools. The static slugs don't support per-call account
+    // routing — useless for multi-account — and the schemas total ~30K
+    // tokens per chat turn (rate-limit + cost disaster). Filter to just
+    // the meta-tools, which is what Claude Desktop / Code use.
+    const META_TOOL_PREFIX = "COMPOSIO_";
+    const filtered = rawTools.filter((t) => t.name.startsWith(META_TOOL_PREFIX));
+    if (filtered.length === 0 && rawTools.length > 0) {
+      console.warn(
+        `[composio] returned ${rawTools.length} tools but none match the COMPOSIO_* meta-prefix — schema may have changed.`,
+      );
+    } else {
+      console.info(
+        `[composio] loaded ${filtered.length} meta-tools (filtered from ${rawTools.length} raw):`,
+        filtered.map((t) => t.name).join(", "),
+      );
+    }
+    const tools = adaptMcpTools(client, filtered);
     _toolsCache = tools;
     _toolsCacheAt = now;
     return tools;
