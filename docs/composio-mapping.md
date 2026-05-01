@@ -194,11 +194,13 @@ Or manually:
 
 ## How Composio is wired into the platform (Phase 5c)
 
-The in-platform chat connects to a single **Composio MCP URL**
-(`COMPOSIO_MCP_URL`) authenticated with `COMPOSIO_API_KEY` as a bearer
-token. That URL is scoped to your Composio user and bundles every
-toolkit + connection in one feed — no per-connection user IDs needed.
-The chat lists tools at cold start (5-min TTL cache) and can:
+The in-platform chat uses the **`@composio/core` SDK** authenticated
+with `COMPOSIO_API_KEY` (your Composio user-API-key). It exposes four
+meta-tools to Claude — `composio_search_tools`, `composio_get_tool_schema`,
+`composio_execute`, `composio_list_connections` — mirroring the surface
+the Composio CLI gives Claude Desktop / Code. Per-call account routing
+is supported via the `account` parameter on `composio_execute`. The
+chat can:
 
 - Read and send Gmail across all 6 accounts
 - Check / create / edit calendar events across all 6 calendars
@@ -207,15 +209,16 @@ The chat lists tools at cold start (5-min TTL cache) and can:
 - Post to LinkedIn, Discord, QuickBooks
 
 Code paths:
-- `src/lib/chat/composio-tools.ts` — opens an MCP client with
-  `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport`,
-  lists tools, and adapts each one into an AI SDK `dynamicTool`.
-- `src/app/api/chat/route.ts` — merges Composio tools with platform
-  tools and passes both to `streamText`.
+- `src/lib/chat/composio-tools.ts` — initializes `Composio({ apiKey })`
+  once per process; defines the 4 meta-tools backed by
+  `tools.getRawComposioTools`, `tools.getRawComposioToolBySlug`,
+  `tools.execute`, and `connectedAccounts.list`.
+- `src/app/api/chat/route.ts` — merges Composio meta-tools with
+  platform tools and passes both to `streamText`.
 
 The system prompt includes a compressed version of the routing rules
-above so Claude picks the right account without being told each time,
-and points to this wiki page for full account IDs.
+above so Claude picks the right `account` for each call without being
+told each time, and points to this wiki page for the full table.
 
 ---
 

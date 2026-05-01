@@ -103,51 +103,56 @@ Defined in `src/lib/chat/tools.ts`. To add a new tool:
 
 ---
 
-## External tools via Composio MCP (Phase 5c)
+## External tools via Composio (Phase 5c)
 
-Composio exposes a single MCP URL per user that bundles every connected
-toolkit + account (Gmail × 6, Calendar × 6, Drive × 4, Notion, LinkedIn,
-Discord, QuickBooks — see `Composio Mapping.md`). The chat connects to
-that one URL and lists tools dynamically.
+The in-platform chat uses the `@composio/core` SDK (not the static MCP
+URL) to call Composio. We expose four meta-tools to Claude —
+`composio_search_tools`, `composio_get_tool_schema`, `composio_execute`,
+`composio_list_connections` — mirroring the surface that `composio`
+CLI gives Claude Desktop. The model picks a tool slug, picks an
+`account` from the routing table, and calls.
 
 ### Required env vars
-- `COMPOSIO_MCP_URL` — the MCP URL shown in Composio's dashboard
-  (Settings → MCP, or the integration page for your account). Scoped
-  to your Composio user; bundles every connected toolkit + account.
-- `COMPOSIO_API_KEY` — the API key shown next to the URL. Sent as
-  `Authorization: Bearer ...` (and `x-api-key` for compatibility) on
-  every MCP request.
+- `COMPOSIO_API_KEY` — your Composio user-API-key. Find it in the
+  Composio dashboard (Settings → API Keys) or in
+  `~/.composio/config.json` after `composio login`. The chat will
+  fall back to platform-only tools without erroring if this is unset.
 
-When either is unset, the chat falls back to platform-only tools
-without erroring.
+### Why not the MCP URL surface?
+Composio's static MCP URL exposes 200+ pre-baked tool slugs but locks
+calls to whichever connection is flagged `is_default` per toolkit, with
+no per-call routing parameter. With 6 Gmail / 6 calendar / 4 Drive
+accounts, that's a non-starter — see ADR-019 for the full reasoning.
 
 ### Wiring
-- Client lives at `src/lib/chat/composio-tools.ts` — uses
-  `@modelcontextprotocol/sdk` Client + `StreamableHTTPClientTransport`.
-- Tools are listed once per cold start (5-min TTL cache) and adapted
-  into AI SDK `dynamicTool`s so `streamText` can call them.
-- The chat system prompt includes a routing hint pointing Claude at the
-  `Composio Mapping` wiki page when it needs to disambiguate accounts.
+- `src/lib/chat/composio-tools.ts` — initializes `Composio({ apiKey })`
+  once per process and exposes the 4 meta-tools.
+- Each meta-tool wraps a SDK call:
+  - `tools.getRawComposioTools` (search)
+  - `tools.getRawComposioToolBySlug` (schema)
+  - `tools.execute` (run, with `connectedAccountId` for routing)
+  - `connectedAccounts.list` (account discovery)
+- `composioPromptHint()` injects a compressed routing table into the
+  system prompt so Claude picks the right `account` per call without
+  reading the wiki every time.
 
 ### Adding/removing toolkits
-You don't. The MCP URL exposes whatever you've connected on Composio's
-side. After connecting a new toolkit:
-1. Update `Composio Mapping.md` with the new account IDs and routing rules
-   (or ask the in-platform Claude: "update the Composio mapping").
-2. The chat picks it up automatically on the next cold start (or wait
-   ~5 min for the cache).
+- Connect or disconnect via Composio's dashboard.
+- For new toolkits, also add the slug to the `ALL_TOOLKITS` array in
+  `composio-tools.ts` so `composio_search_tools` returns its tools when
+  no toolkit filter is passed.
+- Update `Composio Mapping.md` with the new account IDs / routing rules.
 
 ### Debugging
-- Chat says it can't send email / read calendar: check
-  `COMPOSIO_MCP_URL` is set in Vercel. The chat will silently fall back
-  to platform-only tools if the URL is missing or the MCP handshake fails.
-- Composio connection errors logged as `[chat] Composio MCP tools fetch
-  failed: ...` in Vercel logs. Most common cause: URL expired or token
-  revoked → regenerate from Composio's dashboard.
-- Claude picks the wrong account: open `Composio Mapping.md` and check
-  the routing rules. Update the **Claude routing default** column for
-  the toolkit; re-sync the vault. Composio's own `is_default` flag is
-  irrelevant for this chat — the wiki doc drives behavior.
+- Chat falls back to "I don't have access": `COMPOSIO_API_KEY` missing
+  or wrong in Vercel. Check Settings → Environment Variables.
+- Composio call errors: surfaced both in the chat UI (red error pill
+  with the message) and in Vercel runtime logs as
+  `[composio] <method> failed: ...`.
+- Wrong account: tweak `SHARED_BRAIN_ACCOUNT_DEFAULTS` in
+  `composio-tools.ts` or update the routing primer in
+  `composioPromptHint()`. The wiki doc `Composio Mapping.md` is the
+  source of truth Claude reads.
 
 ---
 

@@ -35,7 +35,7 @@ why. Updated at the end of each phase.
 | F3 — Inline previews | ✅ Complete | 2026-05-01 | `/api/files/[id]` proxy + `/preview` converter; PDFs in iframe, DOCX/XLSX as rendered HTML, images inline |
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 | /activity page with filters + pagination, topbar bell with unread count, per-space activity surface |
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 | Vercel AI SDK v6 + claude-sonnet-4-5; 8 platform tools wired in; localStorage persistence; current-page context |
-| 5c — Composio integration | ✅ Complete | 2026-05-01 | MCP URL approach: chat connects to single `COMPOSIO_MCP_URL`, dynamically lists Gmail × 6 / Calendar × 6 / Drive × 4 / Notion / LinkedIn / Discord / QuickBooks |
+| 5c — Composio integration | ✅ Complete | 2026-05-01 | SDK + meta-tools approach (ADR-019): chat exposes search / get_schema / execute / list_connections, per-call routing across all 19 accounts |
 | 5d — Live artifacts | ⏳ Not started | — | Inline kanban snapshots / status cards / charts in chat |
 | 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
 | F4 — Multi-source ingestion | ⏳ Not started | — | Composio Drive watcher, Gmail attachments, manual upload UI |
@@ -84,56 +84,60 @@ why. Updated at the end of each phase.
 
 ---
 
-## Phase 5c — Composio Integration (External Tools via MCP)
+## Phase 5c — Composio Integration (SDK + meta-tools)
 
 **Shipped:** 2026-05-01
 **Spec target:** Phase 5
 
 ### What was built
-The in-platform Claude chat now talks to Composio over MCP. One env
-var (`COMPOSIO_MCP_URL`) is the entire setup — that single URL is
-scoped to the Composio user and bundles every connected toolkit and
-account.
+The in-platform Claude chat exposes four Composio meta-tools backed by
+the `@composio/core` SDK, mirroring the surface Claude Code / Desktop
+gets from the Composio CLI install:
 
-- New file: `src/lib/chat/composio-tools.ts`
-- Connects via `@modelcontextprotocol/sdk`'s `Client` +
-  `StreamableHTTPClientTransport` (already a dependency from the MCP
-  server build).
-- Lists tools at chat init, caches the result for 5 minutes per
-  serverless cold start.
-- Each MCP tool is wrapped as an AI SDK `dynamicTool` with the MCP
-  `inputSchema` passed straight through via `jsonSchema()`.
-- `composioPromptHint()` adds a routing primer to the system prompt
-  pointing Claude at the **Composio Mapping** wiki page when it needs
-  to disambiguate accounts.
-- Soft-fail behavior preserved: if `COMPOSIO_MCP_URL` is unset, or the
-  MCP handshake fails, the chat falls back to platform-only tools
-  rather than 500'ing.
+- `composio_search_tools(use_case, toolkit?)` — find a tool slug
+- `composio_get_tool_schema(tool_slugs)` — inspect a tool's schema
+- `composio_execute(tool_slug, arguments, account?)` — run a tool with
+  per-call account routing
+- `composio_list_connections(toolkit?)` — list every connected account
+  with its underlying email / workspace
 
-### Divergences from spec
-- The spec implied per-toolkit SDK calls with `COMPOSIO_API_KEY` +
-  user IDs. Composio's MCP URL surface is simpler: one URL = all
-  toolkits + connections. We removed `@composio/core` and
-  `@composio/vercel` from the dep tree.
-- Routing across multiple Gmail/Calendar/Drive accounts is handled by
-  Claude reading `Composio Mapping.md` (synced into wiki), not by
-  setting Composio's `is_default` flag — which is irrelevant for
-  in-platform chat.
+- `src/lib/chat/composio-tools.ts` — initializes
+  `Composio({ apiKey: COMPOSIO_API_KEY })` once per process, defines
+  the four tools as AI SDK `tool()`s with Zod input schemas.
+- `composioPromptHint()` injects a compressed routing primer into the
+  system prompt:
+  - Default to ViaOps (`gmail_berret-drinn`, `googlecalendar_finn-septa`,
+    `googledrive_tilaka-actian`) for unspecified Gmail / Calendar / Drive
+    queries
+  - Brand-specific connection IDs for SimHouse, Chief of Chaos, Lamar
+    Coaching, SwingBays, Personal
+- Soft-fail behavior preserved: missing `COMPOSIO_API_KEY` → chat falls
+  back to platform-only tools without erroring.
+
+### Two-step path to here
+First implementation (ADR-018) used Composio's static MCP URL via
+`@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport`. Live
+testing revealed the surface bakes `is_default` per toolkit into every
+tool call with no per-call routing knob — locking 14 of 19 accounts
+out. ADR-019 reversed that decision; this section documents the final
+state.
 
 ### Verification
 - `npx tsc --noEmit` clean.
 - `npm run build` clean.
-- Live smoke test pending — needs the `COMPOSIO_MCP_URL` value pasted
-  into Vercel env vars.
+- Live smoke test pending — needs `COMPOSIO_API_KEY` (the user-API-key
+  from Composio's dashboard) set in Vercel env vars.
 
 ### Friction encountered
-- AI SDK v6 dropped the `experimental_createMCPClient` export. Using
-  the MCP SDK's `Client` directly worked cleanly — same package the
-  platform's own MCP server is built on.
-- Initial design used `@composio/core`'s `Composio.tools.get(userId,
-  …)`. Required collecting per-connection user IDs from Composio's
-  dashboard. Switching to the MCP URL surface dropped that whole
-  ceremony.
+- Composio's MCP URL looks like the canonical "give one thing to the
+  client" path but actually exposes a feature-poor view of the API.
+  The dynamic / meta-tool surface is what supports multi-account.
+- AI SDK v6 dropped `experimental_createMCPClient`, which forced us
+  through the raw MCP SDK in the first attempt. With the SDK pivot
+  we don't need MCP plumbing at all on this path.
+- `Composio.tools.list` doesn't exist — the SDK calls them
+  `getRawComposioTools` (search/list) and `getRawComposioToolBySlug`
+  (single).
 
 ---
 

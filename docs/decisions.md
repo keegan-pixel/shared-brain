@@ -20,7 +20,45 @@ Newest at the top.
 
 ---
 
-## ADR-018 — Composio over MCP URL, not the `@composio/core` SDK
+## ADR-019 — Reverse course on ADR-018: back to `@composio/core` SDK with meta-tools
+
+**Date:** 2026-05-01 · Phase 5c (revision)
+**Decision:** Drop the `COMPOSIO_MCP_URL` integration from ADR-018.
+Use `@composio/core` SDK instead, exposing four meta-tools to the chat:
+`composio_search_tools`, `composio_get_tool_schema`, `composio_execute`,
+`composio_list_connections`.
+
+**Context:** Live testing revealed that Composio's static MCP URL
+surface — what ADR-018 wired up — bakes a single `is_default`
+connection per toolkit into every tool call. There is no parameter on
+the exposed tools (`GMAIL_FETCH_EMAILS`, `GOOGLECALENDAR_EVENTS_LIST`,
+etc.) for routing to a different account. With 6 Gmail / 6 calendar /
+4 Drive accounts, that locks 14 of 19 connections out of the chat.
+
+The surface that DOES support per-call routing is the meta-tool
+pattern — `MULTI_EXECUTE_TOOL` with an `account` parameter. That's how
+Claude Code / Desktop's Composio plugin works. We replicate it
+ourselves on top of the SDK because the meta-tools live behind a
+dynamic-mode MCP server we can't easily provision from a Vercel
+deployment.
+
+**Rejected:**
+- Continue with the static MCP URL — would require setting Composio's
+  `is_default` per toolkit and accepting that 14 accounts are silent.
+- Multiple MCP URLs (one per persona) — possible but operationally
+  messy and ties the chat's account list to Composio's dashboard
+  state.
+
+**Trade-off:** Two extra round trips per Composio task (search → get
+schema → execute) vs. direct slug calls. In practice, search + schema
+results cache well within a session, and the routing flexibility is
+worth the latency.
+
+**Status:** ADR-018 superseded.
+
+---
+
+## ADR-018 — Composio over MCP URL, not the `@composio/core` SDK *(superseded by ADR-019)*
 
 **Date:** 2026-05-01 · Phase 5c
 **Decision:** The chat connects to Composio via a single `COMPOSIO_MCP_URL`
