@@ -38,7 +38,13 @@ import type { ToolSet } from "ai";
 const DEFAULT_COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp";
 
 export function isComposioConfigured(): boolean {
-  return !!process.env.COMPOSIO_CONSUMER_API_KEY;
+  // Accept either name for backward-compat. New canonical: COMPOSIO_API_KEY
+  // (the consumer key, ck_..., from Composio → Settings → Sessions).
+  return !!(process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY);
+}
+
+function getApiKey(): string | undefined {
+  return process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY;
 }
 
 let _client: Client | null = null;
@@ -49,8 +55,8 @@ const TOOLS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function getClient(): Promise<Client> {
   if (_client) return _client;
-  const apiKey = process.env.COMPOSIO_CONSUMER_API_KEY;
-  if (!apiKey) throw new Error("COMPOSIO_CONSUMER_API_KEY is not set");
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("COMPOSIO_API_KEY is not set");
   const url = process.env.COMPOSIO_MCP_URL || DEFAULT_COMPOSIO_MCP_URL;
 
   const transport = new StreamableHTTPClientTransport(new URL(url), {
@@ -60,8 +66,13 @@ async function getClient(): Promise<Client> {
       },
     },
   });
+  // EMPIRICAL: Composio's universal MCP endpoint dumps the entire
+  // 200+ tool catalog when called by an arbitrary client. Claude
+  // Desktop / Code see only the 7 COMPOSIO_* meta-tools. Strong
+  // hypothesis: the gating key is the clientInfo.name during the
+  // MCP initialize handshake. We send "Claude" to match.
   const client = new Client(
-    { name: "shared-brain-chat", version: "1.0.0" },
+    { name: "Claude", version: "1.0.0" },
     { capabilities: {} },
   );
   await client.connect(transport);
@@ -138,25 +149,39 @@ export async function getComposioTools(): Promise<ToolSet> {
     const listed = await client.listTools();
     const rawTools = (listed.tools ?? []) as McpListedTool[];
 
-    // Composio's universal MCP endpoint returns its ENTIRE tool catalog
-    // (200+ slugs across every connected app) plus the 7 COMPOSIO_*
-    // meta-tools. The static slugs don't support per-call account
-    // routing — useless for multi-account — and the schemas total ~30K
-    // tokens per chat turn (rate-limit + cost disaster). Filter to just
-    // the meta-tools, which is what Claude Desktop / Code use.
-    const META_TOOL_PREFIX = "COMPOSIO_";
-    const filtered = rawTools.filter((t) => t.name.startsWith(META_TOOL_PREFIX));
-    if (filtered.length === 0 && rawTools.length > 0) {
-      console.warn(
-        `[composio] returned ${rawTools.length} tools but none match the COMPOSIO_* meta-prefix — schema may have changed.`,
-      );
-    } else {
+    // Composio's universal MCP endpoint can return either:
+    // (a) ~7 COMPOSIO_* meta-tools (preferred — supports per-call routing
+    //     via account param on MULTI_EXECUTE_TOOL), or
+    // (b) the entire 200+ static tool catalog (no per-call routing,
+    //     ~30K tokens of schema overhead per chat turn).
+    // Empirically, the response depends on the clientInfo.name sent
+    // during the MCP handshake (see getClient).
+    const metaTools = rawTools.filter((t) => t.name.startsWith("COMPOSIO_"));
+    const isMetaSurface = metaTools.length > 0 && metaTools.length === rawTools.length;
+    const isCatalogSurface = !isMetaSurface && rawTools.length > 20;
+
+    console.info(
+      `[composio] tools/list returned ${rawTools.length} tools. ` +
+        `meta-tools: ${metaTools.length}. ` +
+        `surface: ${isMetaSurface ? "META (good)" : isCatalogSurface ? "CATALOG (bad — too many tools)" : "MIXED/UNKNOWN"}`,
+    );
+    if (rawTools.length > 0 && rawTools.length <= 30) {
       console.info(
-        `[composio] loaded ${filtered.length} meta-tools (filtered from ${rawTools.length} raw):`,
-        filtered.map((t) => t.name).join(", "),
+        `[composio] tool names:`,
+        rawTools.map((t) => t.name).join(", "),
+      );
+    } else if (isCatalogSurface) {
+      console.warn(
+        `[composio] sample catalog tool names (first 15):`,
+        rawTools.slice(0, 15).map((t) => t.name).join(", "),
+      );
+      console.warn(
+        `[composio] FALLBACK: filtering to COMPOSIO_* meta-tools only to avoid rate limits. ` +
+          `Found ${metaTools.length} matching.`,
       );
     }
-    const tools = adaptMcpTools(client, filtered);
+
+    const tools = adaptMcpTools(client, isMetaSurface ? rawTools : metaTools);
     _toolsCache = tools;
     _toolsCacheAt = now;
     return tools;
