@@ -8,6 +8,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/sse",
   "/api/message",
   "/api/sync(.*)",
+  // Phase 6: serves Profile.md to MCP clients (Bearer auth in the route).
+  "/api/operating-instructions",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
