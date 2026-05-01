@@ -40,13 +40,27 @@ export async function syncOne(
     return { ok: true, action: "ignored", reason: mapping.reason };
   }
 
-  let raw: string;
-  try {
-    raw = await fs.readFile(absPath, "utf8");
-  } catch (err) {
-    return { ok: false, error: `read failed: ${(err as Error).message}` };
+  // For file_artifact (non-markdown), we never read content into memory.
+  // Hash the path + size + mtime for change detection instead.
+  const isFileArtifact = mapping.kind === "file_artifact";
+
+  let raw = "";
+  let hash = "";
+  if (isFileArtifact) {
+    try {
+      const stat = await fs.stat(absPath);
+      hash = sha1(`${relative}|${stat.size}|${stat.mtimeMs}`);
+    } catch (err) {
+      return { ok: false, error: `stat failed: ${(err as Error).message}` };
+    }
+  } else {
+    try {
+      raw = await fs.readFile(absPath, "utf8");
+    } catch (err) {
+      return { ok: false, error: `read failed: ${(err as Error).message}` };
+    }
+    hash = sha1(raw);
   }
-  const hash = sha1(raw);
 
   if (opts.dryRun) {
     return { ok: true, action: "updated", reason: `[dry-run] ${mapping.kind}` };
@@ -54,6 +68,47 @@ export async function syncOne(
 
   try {
     switch (mapping.kind) {
+      case "file_artifact": {
+        // Synthesize a small wiki page describing the file. Title = filename
+        // without extension. Content includes type, size, and an Obsidian
+        // deep-link so the user can open the file from the platform.
+        const ext = path.extname(absPath).slice(1).toLowerCase() || "file";
+        const filename = path.basename(absPath);
+        const titleNoExt = filename.replace(/\.[^.]+$/, "");
+        const stat = await fs.stat(absPath).catch(() => null);
+        const sizeKb = stat ? Math.round(stat.size / 1024) : null;
+
+        const obsidianHref = `obsidian://open?vault=ViaOps&file=${encodeURIComponent(
+          relative.replace(/\.[^.]+$/, ""),
+        )}`;
+
+        const synthBody = [
+          `**${ext.toUpperCase()} file** — \`${filename}\``,
+          "",
+          `- **Path:** \`${relative}\``,
+          sizeKb !== null ? `- **Size:** ${sizeKb} KB` : null,
+          stat ? `- **Modified:** ${stat.mtime.toISOString()}` : null,
+          "",
+          `[Open in Obsidian](${obsidianHref})`,
+          "",
+          `_This is a non-markdown artifact. Content is not indexed for semantic search; the file lives in the local vault and opens via Obsidian._`,
+        ]
+          .filter((l) => l !== null)
+          .join("\n");
+
+        const tags = [...(mapping.tags ?? []), "file", `file-${ext}`];
+
+        const res = await api.syncWiki({
+          filePath: relative,
+          title: titleNoExt,
+          content: synthBody,
+          contentHash: hash,
+          frontmatter: {},
+          tags,
+        });
+        return { ok: true, action: res.skipped ? "skipped" : (res.action as "created" | "updated") };
+      }
+
       case "wiki":
       case "simhouse_doc": {
         const parsed = parseMarkdown(raw, fallbackTitleFromPath(relative));
@@ -168,7 +223,10 @@ export async function walkVault(cfg: SyncConfig): Promise<string[]> {
       if (cfg.ignorePrefixes.some((p) => rel === p || rel.startsWith(`${p}/`))) continue;
       if (entry.isDirectory()) {
         await walk(abs);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      } else if (entry.isFile()) {
+        // Collect everything; mapper.ts decides what to actually sync vs ignore.
+        // Hidden / dot files are skipped at the walker level.
+        if (entry.name.startsWith(".")) continue;
         out.push(abs);
       }
     }

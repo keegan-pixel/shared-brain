@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { BookOpen, ChevronRight, FileText, FolderOpen } from "lucide-react";
+import {
+  BookOpen,
+  ChevronRight,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FolderOpen,
+  Paperclip,
+} from "lucide-react";
 import { db } from "@/lib/db/client";
 import { wikiPages } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
@@ -10,7 +18,16 @@ type PageRow = {
   title: string;
   filePath: string | null;
   updatedAt: Date;
+  isFile: boolean;
+  fileExt: string | null;
 };
+
+function fileIconFor(ext: string | null) {
+  if (!ext) return Paperclip;
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp", "heic"].includes(ext)) return FileImage;
+  if (["xlsx", "xls", "csv", "numbers"].includes(ext)) return FileSpreadsheet;
+  return Paperclip;
+}
 
 type TreeNode = {
   /** Display label for this folder. Empty string for the (synthetic) root. */
@@ -75,18 +92,32 @@ function FolderBlock({ node, depth }: { node: TreeNode; depth: number }) {
         </span>
       </summary>
       <ul>
-        {node.pages.map((p) => (
-          <li key={p.id}>
-            <Link
-              href={`/wiki/${p.id}`}
-              className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-[hsl(var(--accent))]"
-              style={{ paddingLeft: `${(depth + 1) * 16 + 16}px` }}
-            >
-              <FileText className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
-              <span className="truncate">{p.title}</span>
-            </Link>
-          </li>
-        ))}
+        {node.pages.map((p) => {
+          const Icon = p.isFile ? fileIconFor(p.fileExt) : FileText;
+          return (
+            <li key={p.id}>
+              <Link
+                href={`/wiki/${p.id}`}
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-[hsl(var(--accent))]"
+                style={{ paddingLeft: `${(depth + 1) * 16 + 16}px` }}
+              >
+                <Icon
+                  className={
+                    p.isFile
+                      ? "h-3.5 w-3.5 shrink-0 text-blue-500"
+                      : "h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]"
+                  }
+                />
+                <span className="truncate">{p.title}</span>
+                {p.isFile && p.fileExt && (
+                  <span className="ml-1 shrink-0 rounded bg-[hsl(var(--muted))] px-1 py-0.5 text-[9px] font-medium uppercase text-[hsl(var(--muted-foreground))]">
+                    {p.fileExt}
+                  </span>
+                )}
+              </Link>
+            </li>
+          );
+        })}
         {childFolders.map((child) => (
           <li key={child.path}>
             <FolderBlock node={child} depth={depth + 1} />
@@ -116,12 +147,18 @@ export default async function WikiIndex() {
     .where(eq(wikiPages.orgId, org.id))
     .orderBy(desc(wikiPages.updatedAt));
 
-  const pageRows: PageRow[] = rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    updatedAt: r.updatedAt,
-    filePath: (r.metadata as { filePath?: string } | null)?.filePath ?? null,
-  }));
+  const pageRows: PageRow[] = rows.map((r) => {
+    const meta = (r.metadata as { filePath?: string; tags?: string[] } | null) ?? null;
+    const filePath = meta?.filePath ?? null;
+    const tags = meta?.tags ?? [];
+    const isFile = tags.includes("file");
+    let fileExt: string | null = null;
+    if (isFile) {
+      const fileTag = tags.find((t) => t.startsWith("file-"));
+      if (fileTag) fileExt = fileTag.slice("file-".length);
+    }
+    return { id: r.id, title: r.title, updatedAt: r.updatedAt, filePath, isFile, fileExt };
+  });
 
   const { tree, orphans } = buildTree(pageRows);
   const topLevelFolders = Array.from(tree.children.values()).sort((a, b) =>
