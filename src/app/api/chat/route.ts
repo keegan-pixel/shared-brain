@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ApiError, jsonError } from "@/lib/api";
 import { ensureUserOrg } from "@/lib/org";
 import { buildChatTools } from "@/lib/chat/tools";
+import { composioPromptHint, getComposioTools } from "@/lib/chat/composio-tools";
 
 const MODEL_ID = process.env.ANTHROPIC_MODEL_ID || "claude-sonnet-4-5";
 
@@ -95,8 +96,17 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  const tools = buildChatTools({ orgId, actorAgent: "claude-builtin" });
-  const system = buildSystemPrompt({ orgName, context: body.context });
+  // Platform tools (always available) + Composio tools (if configured).
+  // Composio fetch is gated on COMPOSIO_API_KEY; resolves to {} otherwise so
+  // the chat still works in a platform-only mode for setups without Composio.
+  const platformTools = buildChatTools({ orgId, actorAgent: "claude-builtin" });
+  const composioTools = await getComposioTools();
+  const tools = { ...platformTools, ...composioTools };
+
+  const composioHint = composioPromptHint();
+  const system =
+    buildSystemPrompt({ orgName, context: body.context }) +
+    (composioHint ? `\n\n${composioHint}` : "");
 
   const result = streamText({
     model: anthropic(MODEL_ID),
@@ -104,7 +114,7 @@ export async function POST(req: Request) {
     messages: await convertToModelMessages(body.messages),
     tools,
     // Allow the model to call tools, see results, then respond — multi-step.
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(12),
   });
 
   return result.toUIMessageStreamResponse();
