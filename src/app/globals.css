@@ -104,9 +104,24 @@ body {
 .markdown-body hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.5rem 0; }
 .markdown-body input[type="checkbox"] { margin-right: 0.4rem; }
 
-/* Wiki folder tree: rotate chevron when its own <details> is open. Using a
-   direct CSS selector instead of Tailwind's group-open variant because nested
-   <details> with the same group name confuse the variant. */
+/* Wiki folder tree: rotate chevron when its own <details> is open. */
 details[open] > summary > svg.tree-chevron {
   transform: rotate(90deg);
 }
+
+/* Lightweight typography for server-rendered DOCX / XLSX previews. */
+.file-preview-html { font-size: 0.875rem; line-height: 1.55; }
+.file-preview-html p { margin: 0.5rem 0; }
+.file-preview-html h1, .file-preview-html h2, .file-preview-html h3 { font-weight: 600; margin: 0.75rem 0 0.5rem; }
+.file-preview-html h1 { font-size: 1.4rem; }
+.file-preview-html h2 { font-size: 1.2rem; }
+.file-preview-html h3 { font-size: 1.05rem; }
+.file-preview-html ul, .file-preview-html ol { margin: 0.5rem 0 0.5rem 1.5rem; }
+.file-preview-html ul { list-style: disc; }
+.file-preview-html ol { list-style: decimal; }
+.file-preview-html table { border-collapse: collapse; margin: 0.5rem 0; }
+.file-preview-html td, .file-preview-html th { border: 1px solid hsl(var(--border)); padding: 0.25rem 0.5rem; }
+.file-preview-html th { background: hsl(var(--muted)); font-weight: 600; }
+.file-preview-html section + section { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid hsl(var(--border)); }
+.file-preview-html a { color: hsl(var(--primary)); text-decoration: underline; }
+.file-preview-html img { max-width: 100%; height: auto; }

@@ -7,6 +7,7 @@ import { db } from "@/lib/db/client";
 import { wikiPages } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
 import { ConnectionsPanel } from "@/components/connections-panel";
+import { FilePreview } from "@/components/file-preview";
 import { renderWikilinks } from "@/lib/connections/render-wikilinks";
 
 type Props = { params: Promise<{ id: string }> };
@@ -88,43 +89,20 @@ export default async function WikiPage({ params }: Props) {
         </div>
 
         {isFile && blobUrl && (
-          <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]/40 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <a
-                href={blobUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="inline-flex items-center gap-2 rounded-md bg-[hsl(var(--primary))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--primary-foreground))] hover:opacity-90"
-              >
-                Download {fileExt ? fileExt.toUpperCase() : "file"}
-              </a>
-              <a
-                href={blobUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-[hsl(var(--muted-foreground))] hover:underline"
-              >
-                Open in browser
-              </a>
-              {page.extractedWordCount !== null && page.extractedWordCount > 0 && (
-                <span className="ml-auto text-xs text-[hsl(var(--muted-foreground))]">
-                  ✓ Indexed for search · {page.extractedWordCount.toLocaleString()} words
-                </span>
-              )}
-            </div>
-            {isImage && (
-              <div className="mt-3 overflow-hidden rounded border border-[hsl(var(--border))]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={blobUrl}
-                  alt={page.title}
-                  className="block max-h-[60vh] w-auto"
-                  loading="lazy"
-                />
+          <>
+            <FilePreview
+              pageId={page.id}
+              fileExt={fileExt}
+              isImage={isImage}
+              title={page.title}
+              obsidianHref={obsidianHref}
+            />
+            {page.extractedWordCount !== null && page.extractedWordCount > 0 && (
+              <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                ✓ Indexed for search · {page.extractedWordCount.toLocaleString()} words extracted
               </div>
             )}
-          </div>
+          </>
         )}
 
         <article className="markdown-body">
