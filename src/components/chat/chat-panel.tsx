@@ -218,18 +218,45 @@ function Message({ message }: { message: UIMessage }) {
           }
           // Tool calls and results — render as compact metadata pills so the user
           // can see which tools Claude used without it dominating the message.
-          if (part.type.startsWith("tool-")) {
-            const toolName = part.type.replace(/^tool-/, "");
-            // @ts-expect-error AI SDK union narrowing is loose here; state/output not always present
+          // For dynamic tools (Composio over MCP), AI SDK uses `dynamic-tool` parts
+          // with the toolName in `part.toolName`.
+          const isStaticTool = part.type.startsWith("tool-");
+          const isDynamicTool = part.type === "dynamic-tool";
+          if (isStaticTool || isDynamicTool) {
+            const toolName: string = isDynamicTool
+              ? ((part as { toolName?: string }).toolName ?? "tool")
+              : part.type.replace(/^tool-/, "");
+            // @ts-expect-error AI SDK union narrowing is loose here
             const state: string = part.state ?? "running";
+            // @ts-expect-error AI SDK union narrowing is loose here
+            const output = part.output;
+            // @ts-expect-error AI SDK union narrowing is loose here
+            const errorText: string | undefined = part.errorText ?? (typeof output === "object" && output && "error" in output ? String(output.error) : undefined);
+            const isError = state === "output-error" || !!errorText;
             return (
-              <div
-                key={idx}
-                className="my-1 flex items-center gap-1.5 rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]"
-              >
-                <code>{toolName}</code>
-                <span>·</span>
-                <span>{state === "output-available" ? "✓" : state === "input-available" ? "running" : state}</span>
+              <div key={idx} className="my-1 flex flex-col gap-1">
+                <div
+                  className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] ${
+                    isError
+                      ? "bg-red-900/30 text-red-300"
+                      : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+                  }`}
+                >
+                  <code>{toolName}</code>
+                  <span>·</span>
+                  <span>
+                    {state === "output-available"
+                      ? "✓"
+                      : state === "input-available"
+                        ? "running"
+                        : state}
+                  </span>
+                </div>
+                {isError && errorText && (
+                  <pre className="whitespace-pre-wrap rounded bg-red-950/40 p-2 text-[11px] text-red-200">
+                    {errorText}
+                  </pre>
+                )}
               </div>
             );
           }

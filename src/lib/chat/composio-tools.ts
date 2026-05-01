@@ -103,8 +103,19 @@ function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
           });
           return result;
         } catch (err) {
-          // Surface the error to the model rather than blowing up the whole stream.
-          return { error: (err as Error).message };
+          // Surface to model + logs so we can debug auth / schema / routing
+          // issues without the chat going opaque.
+          const message = (err as Error).message;
+          const stack = (err as Error).stack;
+          console.error(
+            `[composio] tool '${t.name}' call failed:`,
+            message,
+            "\nargs:",
+            JSON.stringify(args ?? {}),
+            "\nstack:",
+            stack,
+          );
+          return { error: message, tool: t.name };
         }
       },
     });
@@ -126,12 +137,26 @@ export async function getComposioTools(): Promise<ToolSet> {
   try {
     const client = await getClient();
     const listed = await client.listTools();
-    const tools = adaptMcpTools(client, (listed.tools ?? []) as McpListedTool[]);
+    const rawTools = (listed.tools ?? []) as McpListedTool[];
+    const tools = adaptMcpTools(client, rawTools);
+    console.info(
+      `[composio] loaded ${rawTools.length} MCP tools:`,
+      rawTools
+        .slice(0, 10)
+        .map((t) => t.name)
+        .join(", "),
+      rawTools.length > 10 ? `… +${rawTools.length - 10} more` : "",
+    );
     _toolsCache = tools;
     _toolsCacheAt = now;
     return tools;
   } catch (err) {
-    console.warn("[chat] Composio MCP tools fetch failed:", (err as Error).message);
+    console.warn(
+      "[composio] MCP tools fetch failed:",
+      (err as Error).message,
+      "\nstack:",
+      (err as Error).stack,
+    );
     await resetClient();
     return {} as ToolSet;
   }
