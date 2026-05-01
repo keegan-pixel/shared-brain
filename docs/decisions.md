@@ -20,6 +20,153 @@ Newest at the top.
 
 ---
 
+## ADR-025 — Mobile = Claude.ai + remote MCP, not a native app
+
+**Date:** 2026-05-01 · Phase 7 (planning)
+**Decision:** The mobile experience is Claude.ai mobile (or any future
+mobile MCP-aware client) connected to Shared Brain's remote MCP
+server. We ship no native iOS/Android app and no PWA wrapper around
+the existing web UI.
+
+**Context:** Mobile use cases are action-oriented: "send the XPFlow
+invoice to Mark, Deanna, Matt", "log this thought", "what was the last
+thing I discussed with this person", "send a proposal to client X".
+None of those benefit from the kanban or wiki UI. They benefit from
+natural-language input + tool execution + brief confirmation. That's
+what Claude.ai mobile + MCP already provides.
+
+**Rejected:**
+- Native app — months of work, App Store overhead, two more
+  codebases. No clear value over Claude.ai + MCP.
+- PWA wrapper — kanban and wiki nav don't translate well to phones;
+  forcing a desktop UI onto small screens is worse than not having a
+  mobile UI at all.
+
+**Trade-off:** We take a dependency on Claude.ai's mobile app being
+installed and the user being on a plan that supports remote MCP. As
+of 2026, that's a fair assumption for our user base. If that
+ever changes, the workflow tools we build (Phase 7) are still useful
+on web/desktop, and we can revisit native if needed.
+
+**Implementation:** Phase 7 adds workflow tools to the MCP that
+compose multi-step operations into single calls — the mobile prompt
+becomes a one-shot.
+
+---
+
+## ADR-024 — Vault sync is bidirectional (brain → local + local → brain)
+
+**Date:** 2026-05-01 · Phase F4d (planning)
+**Decision:** The local agent gains a pull-down direction in addition
+to its existing push-up direction. New brain entries (created via the
+in-platform chat, mobile, or another user) get materialized into the
+local Obsidian vault as markdown files automatically.
+
+**Context:** A core promise of the platform is that Obsidian remains
+a complete local mirror — you're never locked into the platform and
+you can read everything offline. Today the agent only pushes vault
+changes upstream. As more entries get created from non-vault surfaces
+(chat, mobile, multi-user), the local vault drifts.
+
+**Implementation outline:**
+- Local agent polls (or subscribes to) a sync feed scoped to the
+  user/org, gets diffs since last sync.
+- Materializes new wiki entries / items into appropriate vault
+  directories based on the entity's space/project.
+- Conflict handling: if a file changed locally between syncs, prefer
+  the local version and warn (don't auto-overwrite). Merging is
+  manual.
+- Frontmatter marks platform-originated entries so the agent doesn't
+  push them right back up in a loop.
+
+**Rejected:** Cloud-only with no local mirror. Violates the brain's
+"you own your data" principle and breaks offline use.
+
+---
+
+## ADR-023 — Agent Operating Instructions architecture
+
+**Date:** 2026-05-01 · Phase 6 (planning)
+**Decision:** Every Claude agent that connects to Shared Brain via
+MCP reads a standardized operating-instructions block at session
+start. The instructions live as a wiki page that the MCP exposes via
+a new `get_operating_instructions` tool. Agents are also given a
+`record_session_summary` tool and a standing instruction to call it
+before ending.
+
+**Context:** Multi-user shared brain only works if every Claude
+session that does meaningful work updates the brain. Technical
+enforcement is brittle (we don't control the agent's behavior). Soft
+enforcement via standing prompt context works because Claude reads
+its system prompt.
+
+**Three-layer defense against drift:**
+1. **Operating instructions** (this ADR) — every agent reads "always
+   call record_session_summary before ending" + user profile +
+   routing rules.
+2. **Auto-capture from observed signals** (Phase F4) — Composio sees
+   meetings, sent emails, doc creations and generates brain entries
+   automatically without the user remembering.
+3. **Drift detection** (later, post-Phase 8) — cron compares Composio
+   activity to brain entries and surfaces "you sent 30 emails this
+   week but only logged 2 sessions — want to catch up?"
+
+**CLI install pattern** — borrowed from Composio's
+`composio --install-skill claude`. We ship `shared-brain --install-skill
+claude` that drops a small skill file pointing at the live operating-
+instructions endpoint into Claude Desktop / Code / Cowork. One-time
+install per device; updates to the instructions propagate without
+re-installing.
+
+**User Profile** is a plain wiki page (`Profile.md`) the user
+maintains. Preferences, brand contexts, work style, common workflows.
+The MCP merges it with standing instructions when serving
+`get_operating_instructions`.
+
+**Rejected:**
+- Hard enforcement (e.g. block tool calls until session_summary
+  recorded) — too rigid; users would resent it for ad-hoc tasks.
+- Per-call attestation ("did you log this?") — annoying.
+- Skipping this entirely and just telling users to remember — defeats
+  the multi-user vision.
+
+**Trade-off:** Soft enforcement means some sessions won't update the
+brain. Layers 2 + 3 are what make the gap small enough not to matter.
+
+---
+
+## ADR-022 — Drop Phase 5d (live artifacts in chat)
+
+**Date:** 2026-05-01 · Phase 5d (cancelled)
+**Decision:** Don't build Phase 5d. The valuable subset (clickable
+wiki link previews + tool action confirmations) is already covered
+by ADR-013's `[[wikilink]]` rendering and the existing tool-pill UI.
+The rest (embedded kanban snapshots, status cards, charts) duplicates
+nav UI for marginal benefit.
+
+**Reasoning:**
+- Kanban is visual + tactile (drag, drop, column density). A static
+  card preview in chat can't replicate that — you'd see it and click
+  through to the real UI anyway.
+- Every artifact type doubles maintenance: a chat-renderable variant
+  plus state hydration plus click-through routing, in addition to
+  the canonical UI.
+- Chat's strengths are linear conversation, Q&A, action, synthesis —
+  not embedded layout.
+- Multi-user platform: every additional rendering path multiplies
+  cost across users without proportional value.
+
+**What's preserved:**
+- `[[wikilink]]` renders as clickable cards via ADR-013 — the link
+  preview UX is already there.
+- Tool action confirmations show as one-line pills with entity refs.
+
+**Rejected alternative:** Build a pared-down version (just status
+cards, no charts). Still adds a rendering path for value the user
+doesn't actually need. Drop is cleaner.
+
+---
+
 ## ADR-021 — Token-efficiency budget for the in-platform chat
 
 **Date:** 2026-05-01 · Phase 5c (post-MVP optimization)

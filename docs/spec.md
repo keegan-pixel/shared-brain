@@ -36,9 +36,12 @@ related: "[[AI-Native PM Platform Vision]]"
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 |
 | File storage + extraction + previews (F1+F2+F3) | ✅ Complete | 2026-04-30 → 2026-05-01 |
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 |
-| 5c — Composio integration | ⏳ Not started | — |
-| 5d — Live artifacts | ⏳ Not started | — |
-| F4 — Multi-source ingestion | ⏳ Not started | — |
+| 5c — Composio integration | ✅ Complete | 2026-05-01 |
+| ~~5d — Live artifacts~~ | ❌ Dropped (ADR-022) | 2026-05-01 |
+| 6 — Agent Operating Instructions | ⏳ Next up | — |
+| F4 — Bidirectional ingestion (incl. F4d local-mirror pull-down) | ⏳ Queued | — |
+| 7 — Mobile via Claude (Claude.ai mobile + remote MCP, no native) | ⏳ Queued | — |
+| 8 — Multi-user readiness | 🅿️ Parked | — |
 
 ---
 
@@ -95,9 +98,14 @@ related: "[[AI-Native PM Platform Vision]]"
 - Smart glasses / smart device ingestion
 - List view (add post-MVP once kanban is stable)
 - Notion integration
-- Bidirectional vault sync (added when mobile becomes primary)
-- Multi-org support (architecture ready, UI locked to one org for now)
-- Live artifact rendering inside the built-in Claude interface (Phase 5 enhancement — see below)
+- Multi-org support / multi-user (deferred to Phase 8 — parked)
+- Live artifact rendering inside chat (cancelled per ADR-022)
+- Native iOS/Android app (Phase 7 uses Claude.ai mobile + remote MCP instead — see ADR-025)
+
+### Now in scope (added as roadmap evolved)
+- Bidirectional vault sync (Phase F4d, ADR-024) — local Obsidian stays mirrored when entries are created from chat / mobile / other users
+- Agent Operating Instructions (Phase 6, ADR-023) — standardized session-start context for every Claude agent so the brain stays updated automatically
+- Mobile via Claude.ai + remote MCP (Phase 7, ADR-025) — workflow tools for one-shot mobile actions
 
 ---
 
@@ -289,12 +297,65 @@ All views use shadcn/ui components. Dark mode supported from day one.
 - [x] **Backlink engine — Phase 4a** *(deterministic edges: explicit_link, frontmatter_related, tag_overlap, folder_sibling, semantic_similar, hierarchy. Phase 4b adds keyword_overlap, co_mention, ai_suggested via background cron — see [[Shared Brain/Decisions#ADR-013]])*
 - [x] Wiki sync from vault (`Knowledge/` + `Pipeline/` folders) *(Phase 2)*
 
-### Phase 5 — Activity Feed + Built-in Claude (Week 6–7)
-- [ ] Activity feed (global + per-space, filterable)
-- [ ] Built-in Claude chat panel (Vercel AI SDK)
-- [ ] Composio wired into built-in Claude interface (covers all external tools including Granola)
-- [ ] **Live artifact rendering** — Claude can generate interactive artifacts (kanban snapshots, status summaries, charts) inline within the chat panel, pulling live data from the Shared Brain API
-- [ ] **Exit criterion:** Can ask "what's on my plate for XP Flow this week?" from inside the platform and get a real answer — optionally rendered as a live artifact
+### Phase 5 — Activity Feed + Built-in Claude (Week 6–7) — ✅ Shipped 2026-05-01
+- [x] Activity feed (global + per-space, filterable) — Phase 5a
+- [x] Built-in Claude chat panel (Vercel AI SDK v6) — Phase 5b
+- [x] Composio wired into built-in Claude interface — Phase 5c (universal MCP endpoint, ADR-020; token-efficiency optimizations, ADR-021)
+- ❌ ~~Live artifact rendering~~ — dropped (ADR-022). Valuable subset (link previews, action confirmations) already covered by `[[wikilink]]` rendering and tool pills.
+- [x] **Exit criterion met:** Can ask "what's on my plate for XP Flow this week?" from inside the platform and get a real answer.
+
+---
+
+### Phase 6 — Agent Operating Instructions (next)
+**Goal:** Every Claude agent that connects to Shared Brain via MCP reads a standardized operating-instructions block at session start and is given tools to record what it did.
+
+- [ ] User Profile wiki page (`Profile.md`) — preferences, brand context, work style, common workflows
+- [ ] MCP tool `get_operating_instructions` — returns merged user profile + standing instructions
+- [ ] MCP tool `record_session_summary({ summary, project?, related_items? })` — appends to activity feed + creates session-note wiki page
+- [ ] CLI install script `shared-brain --install-skill claude` — drops a skill file into Claude Desktop / Code / Cowork pointing at the live operating-instructions endpoint
+- [ ] **Exit criterion:** Activity feed shows session-summary entries auto-landing as Claude agents finish work, without the user remembering to ask.
+
+See ADR-023 for the architecture rationale (three-layer drift defense: standing instructions + auto-capture + drift detection).
+
+---
+
+### Phase F4 — Bidirectional Ingestion (after Phase 6)
+**Goal:** Expand the brain's input surface (auto-pull from external sources) AND keep the local Obsidian vault as a complete mirror of platform-originated entries.
+
+- [ ] **F4a:** Composio Drive watcher — auto-pull new files from connected Drives into the brain
+- [ ] **F4b:** Gmail attachment auto-ingest — important emails with attachments → wiki entries
+- [ ] **F4c:** Manual upload UI in the platform
+- [ ] **F4d (NEW per ADR-024):** Vault pull-down — local agent gets a sync feed and materializes platform-created entries as markdown into the vault, so Obsidian stays a complete local mirror
+- [ ] **Exit criterion:** Working from any surface (chat, mobile, another user) creates entries that propagate to your local Obsidian vault automatically.
+
+---
+
+### Phase 7 — Mobile via Claude (after F4)
+**Goal:** Claude.ai mobile + Shared Brain remote MCP becomes the on-the-go interface. No native app, no PWA.
+
+- [ ] Workflow tool `compose_invoice({ client, items?, send_to? })` — composes pulling client + applying template + emailing
+- [ ] Workflow tool `compose_proposal({ client, template_name? })`
+- [ ] Workflow tool `log_thought({ text, project? })` — quick capture
+- [ ] Workflow tool `find_last_context({ person_or_company })` — searches emails + meeting notes + brain
+- [ ] User profile (Phase 6) feeds workflow defaults — invoice template style, tone, brand
+- [ ] Workflow tools return brief confirmations + entity links (mobile-friendly response shape)
+- [ ] **Exit criterion:** "Generate a new XPFlow invoice and send it to Mark, Deanna, Matt" from phone → one prompt → one MCP roundtrip → done.
+
+See ADR-025 for why no native app.
+
+---
+
+### Phase 4b — Background AI Edges (parallel; can ship anytime)
+**Goal:** Connection graph keeps getting smarter on a cron schedule.
+
+- [ ] Cron job — keyword overlap edge extraction
+- [ ] Cron job — AI-suggested connections (model proposes related entities)
+- [ ] **Exit criterion:** Connection panel surfaces non-obvious related entries that weren't explicitly linked.
+
+---
+
+### Phase 8 — Multi-user readiness (PARKED)
+Triggered when there's a second real user or company onboarding. Scope: per-user Clerk accounts, per-user Composio consumer keys, org-scoped data isolation, per-user operating instructions.
 
 ---
 

@@ -36,10 +36,12 @@ why. Updated at the end of each phase.
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 | /activity page with filters + pagination, topbar bell with unread count, per-space activity surface |
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 | Vercel AI SDK v6 + claude-sonnet-4-5; 8 platform tools wired in; localStorage persistence; current-page context |
 | 5c — Composio integration | ✅ Complete | 2026-05-01 | Universal MCP endpoint + `x-consumer-api-key` (ADR-020): chat connects to `connect.composio.dev/mcp`, gets the meta-tool surface (SEARCH / EXECUTE / etc.), per-call routing across all 19 accounts |
-| 5d — Live artifacts | ⏳ Not started | — | Inline kanban snapshots / status cards / charts in chat |
-| 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — | Cron-driven; queued |
-| F4 — Multi-source ingestion | ⏳ Not started | — | Composio Drive watcher, Gmail attachments, manual upload UI |
-| 5 — Activity Feed + Built-in Claude | ⏳ Not started | — | |
+| ~~5d — Live artifacts~~ | ❌ Dropped | 2026-05-01 | ADR-022: lookups/actions through nav are faster than chat-rendered duplicates; valuable subset (link previews + action confirmations) already covered by `[[wikilink]]` rendering + tool pills |
+| 6 — Agent Operating Instructions | ⏳ Next up | — | User profile + standing instructions every Claude agent reads at session start; new MCP tools `get_operating_instructions` + `record_session_summary`; CLI install script (ADR-023) |
+| 4b — Background AI edges | ⏳ Queued | — | Cron-driven keyword overlap + AI-suggested connections; runs in parallel, no blocking |
+| F4 — Bidirectional ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI · **F4d (NEW): vault pull-down so brain → local Obsidian stays mirrored** (ADR-024) |
+| 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
+| 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
 
 **Live URLs:**
 - Production: https://shared-brain-ecru.vercel.app/
@@ -81,6 +83,80 @@ why. Updated at the end of each phase.
   Fixed by lazy-init via Proxy. See [[Decisions#ADR-007]].
 - pgvector wasn't visible in Neon's UI. Solved by scripting the
   `CREATE EXTENSION` in the migration runner. See [[Decisions#ADR-001]].
+
+---
+
+## Phase 6 — Agent Operating Instructions (NEXT UP)
+
+**Target ship:** within next session
+**Spec target:** new (post-MVP)
+
+### Why this is the highest-leverage thing left
+The Shared Brain only stays useful if every Claude session that
+touches the user's work actually *updates* the brain afterward. Forcing
+this technically is hard; making it socially-via-prompt is easy. We
+standardize the operating context all agents read on connect.
+
+### What gets built
+- **User Profile wiki page** — preferences, work style, brand context,
+  common workflows. Lives at `Profile.md` in vault, mirrors to wiki.
+- **Two new MCP tools:**
+  - `get_operating_instructions` — returns the merged user profile +
+    standing instructions block. Every agent calls this at session
+    start.
+  - `record_session_summary({ summary, project?, related_items? })` —
+    appends a structured "what I did" entry to the activity feed and
+    creates a session-note wiki page. Agents call before ending.
+- **Standing instructions text** baked into the operating-instructions
+  response: "Before ending the session, call `record_session_summary`
+  with what you did. Reference work as `[[Page Title]]` for autolinks.
+  Default to ViaOps connection for Gmail/Calendar/Drive when
+  unspecified..."
+- **CLI install script** — `shared-brain --install-skill claude` adds a
+  small skill file to Claude Desktop / Code / Cowork pointing at the
+  live operating-instructions endpoint, so updates propagate without
+  re-installing.
+
+### Measurement of "did it work"
+Vault sync log + activity feed should show session-summary entries
+landing automatically as Claude agents finish work. If they aren't,
+the standing instructions text needs strengthening or the CLI install
+isn't placing the skill correctly.
+
+---
+
+## Phase 7 — Mobile via Claude (QUEUED, after 6 + F4)
+
+**Target ship:** TBD
+**Spec target:** new (post-MVP)
+
+### Why
+Mobile is a critical surface for the "brain on the go" use case
+(send proposal, generate invoice, log a thought, find last context
+with a person). Native app is overkill; Claude.ai mobile + remote MCP
+already exists. The work is making the MCP feel mobile-first.
+
+### What gets built
+- **Workflow tools** — composed multi-step operations exposed as
+  single MCP tools so a mobile prompt becomes a one-shot:
+  - `compose_invoice({ client, items?, send_to? })` — pulls client
+    from brain, applies invoice template, optionally emails via
+    Composio
+  - `compose_proposal({ client, template_name? })` — same pattern for
+    proposals
+  - `log_thought({ text, project? })` — quick capture
+  - `find_last_context({ person_or_company })` — search emails +
+    meeting notes + brain entries for the last interaction
+- **Operating-instructions integration** — Phase 6's user profile
+  feeds the workflow tools so they know your invoice template style,
+  your tone, your brand defaults.
+- **Mobile-friendly response shaping** — workflow tools return brief
+  confirmations + entity links rather than verbose results.
+
+### What does NOT get built
+- Native iOS/Android app
+- PWA wrapper around the existing web UI (kanban + wiki nav don't
+  translate well to phones; Claude is the mobile UI)
 
 ---
 
