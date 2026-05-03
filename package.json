@@ -12,7 +12,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "backfill:connections": "tsx scripts/backfill-connections.ts",
-    "install-skill": "tsx scripts/install-skill.ts"
+    "install-skill": "tsx scripts/install-skill.ts",
+    "install-daemon": "tsx scripts/install-daemon.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.73",

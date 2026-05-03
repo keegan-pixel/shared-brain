@@ -296,6 +296,21 @@ details when status is `error`.
 **This auto-starts the watcher on every login.** Only install when you're
 ready for that.
 
+#### Easy way (one command)
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain
+export MCP_API_KEY=$(grep "^MCP_API_KEY=" .env.local | cut -d= -f2 | tr -d '"')
+npm run install-daemon
+```
+
+The script writes the plist (mode 0600 — contains your key), bootstraps it
+with `launchctl`, and verifies it's running. Use `npm run install-daemon -- --dry-run`
+to preview without writing.
+
+To uninstall: `npm run install-daemon -- --uninstall`.
+
+#### Manual way (legacy)
+
 1. Save this to `~/Library/LaunchAgents/com.viaops.shared-brain.sync.plist`,
    replacing `REPLACE_ME` with your `MCP_API_KEY`:
 
