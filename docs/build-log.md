@@ -810,6 +810,72 @@ places when one is resolved.
   Cosmetic; doesn't affect working tree. Clean up with
   `git filter-repo` + force-push if the repo size ever bothers us.
 
+### Parking lot — post-MVP feedback (revisit after main build)
+
+External feedback gathered as the platform takes shape. Captured for
+later prioritization, not committed to scope. Revisit once Phase 4b /
+F4 / 7 are shipped and decide which to pull forward, drop, or defer
+further.
+
+#### From Matt Reynolds (2026-05-03 Granola conversation, Trade Oracle architecture meeting)
+
+**Maps to existing roadmap:**
+
+- **Orgs / Spaces hierarchy with permissions tree** — left-nav as
+  Global → Orgs → Spaces, with private-individual / private-org /
+  global visibility scopes. Invite users by email to an org; org
+  membership grants access to org spaces. Sharpens what Phase 8
+  (multi-user readiness) means architecturally. Bonus angle: super-
+  admin sees overlap across client orgs (conflict-of-interest /
+  policy-mismatch detection) — sellable to consultants.
+- **Agents + Chat as core left-nav items** — Agents = a CRUD where
+  each agent is a markdown defining which Composio tools and
+  collections it can access. Chat lets users pick an agent and kick
+  off workflows. Pair with a CLI covering every API endpoint so
+  agents can self-maintain (create spaces, add members). Overlaps
+  Phase 7 mobile workflow tools; agents-as-markdown is a new sub-
+  phase. Matt: *"if you add agents and chat, you'll have infinite
+  things."*
+- **Channels integrations (Discord / Telegram / Signal bots)** —
+  surface Shared Brain via chat-platform bots so users don't depend
+  on Claude's mobile app. Different channels can route to different
+  agents/models. Adjacent to Phase 7. Discord first (already in use).
+  Keegan's pushback: Claude-native first, chat-platform bots follow.
+
+**Net-new direction (post-MVP):**
+
+- **Composio replacement strategy** — Composio is an API-facade
+  abstraction, not a moat; AI could rebuild equivalents in a week.
+  Right tool today; plan for going direct on integrations longer-term
+  to avoid vendor dependency.
+- **Profile-based API key config (UI surface)** — already true under
+  the hood (users plug in their own Composio + LLM keys). Needs a
+  proper "Configure" panel in the user profile. Per-org choice of
+  which LLM powers Shared Brain becomes a setting — *"are you paying
+  the cloud AI or am I."*
+- **Workflow Analyzer agent (productized consulting tool)** — drop in
+  a client SOP markdown → agent recommends simplifications. Wire to
+  client tools via Composio (Zoho example). Generate a mock refactored
+  portal as deliverable. Sell as $500 consult or white-label to
+  enterprises (e.g. Charter cited as "8 million workflows that need
+  refactoring"). Concrete consulting upsell built on the platform.
+- **Strategic moat framing** — *"rag with features + chat + agents"*
+  is the universal software pattern; everyone can build the shell. The
+  moat is specific data sources + custom widgets/dashboards. Informs
+  how we prioritize differentiation work.
+- **Invisible-PM thesis (validated)** — Matt strongly endorsed via
+  home-automation analogy: *"the best home automation isn't a remote
+  light switch — I don't want to interact with it at all."* Already
+  aligned with our direction; worth keeping as a north-star quote.
+
+**Validation (no action needed):**
+
+- **Kanban column collapse** — Matt called it out as something he
+  wants to copy into his AIST DLC visualizer. Genuine compliment;
+  good signal that the small UI moves are landing.
+
+---
+
 ### End-of-phase checklist (the rule)
 At the end of every phase, before declaring it shipped:
 1. ✅ All sidebar / topbar / page links resolve (no 404s)
