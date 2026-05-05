@@ -387,17 +387,44 @@ To uninstall: `npm run install-daemon -- --uninstall`.
 ## Rotating secrets
 
 ### MCP_API_KEY
+
+#### Easy way (one command)
+
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain
+npm run rotate-key
+```
+
+The script:
+1. Generates a new key (never echoed to stdout)
+2. Updates `.env.local` (with backup at `.env.local.bak.<timestamp>`)
+3. Updates Claude Desktop's `claude_desktop_config.json` (`AUTH_HEADER`
+   field of the `shared-brain` MCP server entry; backup made)
+4. Updates the launchd daemon plist (`MCP_API_KEY` env var; backup made)
+   and reloads the daemon via `launchctl bootout + bootstrap` so the
+   running watcher picks up the new value
+5. Copies the new key to your clipboard for Vercel
+6. Prints a checklist of remaining manual steps (Vercel env var, Claude
+   Code, Claude Cowork, Claude Desktop restart)
+
+Use `--dry-run` to preview what would change without writing.
+
+#### Manual checklist (legacy — do this if the script can't auto-apply)
+
 1. Generate a new key:
    ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))" | pbcopy && echo "✓ key on clipboard"
    ```
-2. Update `.env.local` with the new value.
-3. Update Vercel: Settings → Environment Variables → `MCP_API_KEY` → edit → save.
-4. Redeploy (Vercel does this automatically on env change).
-5. Update every connected client:
+2. Update `.env.local` with the new value (paste from clipboard).
+3. Update Vercel: Settings → Environment Variables → `MCP_API_KEY` → edit → save → redeploy.
+4. Update every connected client:
    - **Claude Desktop:** edit `~/Library/Application Support/Claude/claude_desktop_config.json`,
-     change `AUTH_HEADER` env value, restart.
+     change `AUTH_HEADER` env value, then quit (Cmd-Q) + reopen.
    - **Claude Code:** `claude mcp remove shared-brain && claude mcp add ...` with new key.
+   - **Claude Cowork:** app → Settings → MCP servers → Shared Brain → update auth header.
+   - **Daemon plist** (if installed): edit
+     `~/Library/LaunchAgents/com.viaops.shared-brain.sync.plist`, change
+     `MCP_API_KEY`, then `launchctl bootout gui/$(id -u) <plist> && launchctl bootstrap gui/$(id -u) <plist>`.
 
 ### Clerk keys (test → production)
 See [[Build Log#Phase 1]] for the production-instance flow. TL;DR: Clerk

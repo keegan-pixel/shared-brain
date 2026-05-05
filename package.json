@@ -13,7 +13,8 @@
     "db:studio": "drizzle-kit studio",
     "backfill:connections": "tsx scripts/backfill-connections.ts",
     "install-skill": "tsx scripts/install-skill.ts",
-    "install-daemon": "tsx scripts/install-daemon.ts"
+    "install-daemon": "tsx scripts/install-daemon.ts",
+    "rotate-key": "tsx scripts/rotate-key.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.73",
