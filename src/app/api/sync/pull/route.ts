@@ -171,7 +171,10 @@ export const GET = handle(async (req: Request) => {
       content: r.content,
       frontmatter: metadata.frontmatter,
     });
-    const contentHash = createHash("md5").update(body).digest("hex");
+    // SHA1 to match (a) agent/src/hash.ts (`sha1(raw)`), (b)
+    // file_document.ts. Single hash space across all three sites is
+    // what makes move-detection + skip-if-unchanged work.
+    const contentHash = createHash("sha1").update(body).digest("hex");
 
     // Idempotent: insert log row if missing, do nothing if it already
     // exists. Uses ON CONFLICT on file_path (the unique key).
