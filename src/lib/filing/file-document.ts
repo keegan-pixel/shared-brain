@@ -125,7 +125,11 @@ export async function fileDocument(input: FileDocumentInput): Promise<FileDocume
   }
 
   const body = renderBody(fm, input.content);
-  const contentHash = createHash("md5").update(body).digest("hex");
+  // SHA1 to match the vault sync agent's hash function (`sha1(raw)`
+  // in agent/src/hash.ts). Same hash space → server's
+  // skip-if-unchanged check on push-back will return `skipped:true`
+  // when the agent reads the file we wrote and round-trips it.
+  const contentHash = createHash("sha1").update(body).digest("hex");
 
   // Embedding (best-effort).
   let embedding: number[] | null = null;
