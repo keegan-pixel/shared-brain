@@ -18,6 +18,7 @@ import {
 import { logActivity } from "@/lib/activity";
 import { indexEntityLinks } from "@/lib/connections/extract";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
+import { fileDocument } from "@/lib/filing/file-document";
 import type { McpContext } from "./context";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
@@ -539,6 +540,63 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         recorded: true,
         wiki_page: { id: created.id, title: created.title },
       });
+    },
+  );
+
+  server.tool(
+    "file_document",
+    [
+      "Save an external document (email body, meeting transcript, fetched file content, web page, etc.) into Keegan's vault at an AI-classified location. YOU decide the targetPath using:",
+      "1. Routing rules from get_operating_instructions (Profile.md sections 5 + 7 — where things go).",
+      "2. Active state from get_active_state (which active project/space matches the content?).",
+      "3. The document's content (subject, parties, topic, dates).",
+      "Provide a confidence score 0.0-1.0; below 0.7 routes to Inbox/ for the user to review and refile (which the system will learn from). For uncertain cases, prefer Inbox over a wrong guess.",
+      "Pair with COMPOSIO_MULTI_EXECUTE_TOOL to fetch external content (Gmail messages, Drive files, etc.) first, then call this tool with the fetched content. Always include `source` describing the origin so the activity log + future reconciliation know where the doc came from.",
+    ].join("\n"),
+    {
+      title: z.string().min(1).max(240),
+      content: z.string().min(1),
+      target_path: z
+        .string()
+        .optional()
+        .describe(
+          "Vault-relative path including .md extension (e.g. 'Clients/Trade Oracle/Meetings/2026-05-07 - Subject.md'). Omit if uncertain — the system will route to Inbox/.",
+        ),
+      confidence: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe(
+          "0.0-1.0 self-assessment of target_path correctness. <0.7 routes to Inbox.",
+        ),
+      tags: z.array(z.string()).optional(),
+      source: z
+        .string()
+        .optional()
+        .describe(
+          "Origin descriptor — e.g. 'gmail:keegan@viaops.co/INBOX/<msgId>', 'gdrive:<file_id>', 'granola:<meetingId>'.",
+        ),
+      reasoning: z
+        .string()
+        .optional()
+        .describe(
+          "One-sentence rationale for the chosen target_path. Surfaced in the activity log so user can audit AI filing decisions.",
+        ),
+    },
+    async ({ title, content, target_path, confidence, tags, source, reasoning }) => {
+      const result = await fileDocument({
+        orgId: ctx.orgId,
+        actorAgent: ctx.actorAgent,
+        title,
+        content,
+        targetPath: target_path,
+        confidence,
+        tags,
+        source,
+        reasoning,
+      });
+      return ok(result);
     },
   );
 

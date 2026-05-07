@@ -16,6 +16,7 @@ import { logActivity } from "@/lib/activity";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
 import { indexEntityLinks } from "@/lib/connections/extract";
 import { buildActiveState, getProfilePage } from "@/lib/mcp/tools";
+import { fileDocument } from "@/lib/filing/file-document";
 
 /**
  * Build the tool set the in-platform Claude chat panel can use. Same surface
@@ -254,6 +255,33 @@ export function buildChatTools(args: { orgId: string; actorAgent: string }) {
           };
         }
         return { title: page.title, updated_at: page.updatedAt, content: page.content };
+      },
+    }),
+
+    file_document: tool({
+      description:
+        "Save an external document (email body, meeting transcript, fetched file, etc.) into the vault at YOUR classified destination. Decide target_path using get_operating_instructions routing rules + get_active_state + content. Confidence <0.7 (or no target_path) routes to Inbox/ — prefer Inbox over a wrong guess; the system learns from where the user refiles. Pair with COMPOSIO tools to fetch external content first.",
+      inputSchema: z.object({
+        title: z.string().min(1).max(240),
+        content: z.string().min(1),
+        target_path: z.string().optional(),
+        confidence: z.number().min(0).max(1).optional(),
+        tags: z.array(z.string()).optional(),
+        source: z.string().optional(),
+        reasoning: z.string().optional(),
+      }),
+      execute: async ({ title, content, target_path, confidence, tags, source, reasoning }) => {
+        return fileDocument({
+          orgId,
+          actorAgent,
+          title,
+          content,
+          targetPath: target_path,
+          confidence,
+          tags,
+          source,
+          reasoning,
+        });
       },
     }),
 

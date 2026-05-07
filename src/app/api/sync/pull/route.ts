@@ -21,7 +21,7 @@
  * Auth: same Bearer pattern as other /api/sync/* routes.
  */
 
-import { eq, gt, and, isNull } from "drizzle-orm";
+import { eq, gt, and, isNull, or, sql } from "drizzle-orm";
 import { wikiPages, vaultSyncLog } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
 import { resolveSyncOrg } from "@/lib/sync/context";
@@ -128,7 +128,17 @@ export const GET = handle(async (req: Request) => {
       and(
         eq(wikiPages.orgId, orgId),
         gt(wikiPages.updatedAt, since),
-        isNull(vaultSyncLog.filePath),
+        // Two classes of "platform-only, needs materialization":
+        //   (a) no vault_sync_log row at all (pages created directly via DB
+        //       or chat tools without going through the writer)
+        //   (b) metadata.platform_origin = 'file_document' (pages created
+        //       by the F4 v1 AI Filing Engine — these have a log row
+        //       written immediately for round-trip duplicate prevention,
+        //       but the local file doesn't exist yet)
+        or(
+          isNull(vaultSyncLog.filePath),
+          sql`${wikiPages.metadata}->>'platform_origin' = 'file_document'`,
+        ),
         isNull(wikiPages.blobUrl),
       ),
     );
