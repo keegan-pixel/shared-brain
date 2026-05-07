@@ -135,9 +135,22 @@ export const GET = handle(async (req: Request) => {
 
   // Build the agent-friendly response. We pre-render the body the
   // agent should write (frontmatter + content) and pre-compute the
-  // expected contentHash so the agent can write vault_sync_log
-  // identically and avoid push-back loops.
-  const pages = rows.map((r) => {
+  // expected contentHash. Critically, we also INSERT a vault_sync_log
+  // row for each pulled page if one doesn't exist — this prevents the
+  // round-trip duplicate bug (file gets pulled → written locally →
+  // chokidar fires → push-up can't find a log → creates a 2nd wiki
+  // page with the same title).
+  const pages: Array<{
+    id: string;
+    filePath: string;
+    title: string;
+    body: string;
+    contentHash: string;
+    updatedAt: Date;
+    hasExistingLog: boolean;
+  }> = [];
+
+  for (const r of rows) {
     const metadata = (r.metadata ?? {}) as {
       filePath?: string;
       frontmatter?: Record<string, unknown>;
@@ -148,25 +161,34 @@ export const GET = handle(async (req: Request) => {
       content: r.content,
       frontmatter: metadata.frontmatter,
     });
-    // Hash matches what the agent would compute when round-tripping.
-    // The agent uses md5(body) — no version prefix, no trailing newline
-    // normalization here, since the agent's own hash function adds the
-    // version prefix.
     const contentHash = createHash("md5").update(body).digest("hex");
 
-    return {
+    // Idempotent: insert log row if missing, do nothing if it already
+    // exists. Uses ON CONFLICT on file_path (the unique key).
+    if (!r.logFilePath) {
+      await db
+        .insert(vaultSyncLog)
+        .values({
+          filePath,
+          entityType: "wiki_page",
+          entityId: r.id,
+          contentHash,
+          status: "synced",
+          lastSyncedAt: new Date(),
+        })
+        .onConflictDoNothing({ target: vaultSyncLog.filePath });
+    }
+
+    pages.push({
       id: r.id,
       filePath,
       title: r.title,
       body,
       contentHash,
       updatedAt: r.updatedAt,
-      // Tell the agent whether the platform already has a vault_sync_log
-      // row for this entity. If yes, the agent should rely on the existing
-      // log; if no, the agent should treat as a brand-new local file.
       hasExistingLog: r.logFilePath != null,
-    };
-  });
+    });
+  }
 
   // Cursor: use the max updatedAt of returned pages, OR `since` if no
   // pages came back, so the agent can advance to "now".
