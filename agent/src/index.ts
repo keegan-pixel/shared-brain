@@ -1,9 +1,14 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import pLimit from "p-limit";
+import { fileURLToPath } from "node:url";
 import { ApiClient } from "./api.ts";
 import { loadConfig, relPath } from "./config.ts";
 import { syncOne, walkVault, type SyncResult } from "./sync.ts";
+import { pullDown } from "./pull.ts";
+
+// Agent dir = where this file lives + ".." (we're in agent/src/, agent dir is one up).
+const AGENT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 type Args = { mode: "once" | "watch"; dryRun: boolean };
 
@@ -33,6 +38,17 @@ async function fullScan(args: Args) {
       `[sync] include: ${cfg.includePrefixes.join(", ")}\n` +
       `[sync] api: ${cfg.apiBase}`,
   );
+
+  // Phase F4d — pull-down BEFORE push. Materialize any platform-side
+  // entries (chat-created session notes, mobile-created entries, other
+  // users in the future) into the local vault first so the push pass
+  // sees them as already-known files. Best-effort: failures here don't
+  // block the push.
+  try {
+    await pullDown({ cfg, api, agentDir: AGENT_DIR, dryRun: args.dryRun });
+  } catch (err) {
+    console.warn(`[sync] pull-down failed (continuing with push): ${(err as Error).message}`);
+  }
 
   const files = await walkVault(cfg);
   console.log(`[sync] found ${files.length} markdown files in included paths`);
@@ -99,11 +115,26 @@ async function watch(args: Args) {
       console.log(`[watch:unlink] ${relPath(file, cfg.vaultRoot)} (deletion not yet propagated)`);
     });
 
+  // Phase F4d — periodic pull-down so long-running watch sessions
+  // pick up platform-created entries (chat sessions, mobile, other
+  // users) without requiring a restart. Every 5 minutes is plenty
+  // for "feels live but doesn't hammer the API".
+  const PULL_INTERVAL_MS = 5 * 60 * 1000;
+  const pullTimer = setInterval(async () => {
+    try {
+      await pullDown({ cfg, api, agentDir: AGENT_DIR });
+    } catch (err) {
+      console.warn(`[sync] periodic pull-down failed: ${(err as Error).message}`);
+    }
+  }, PULL_INTERVAL_MS);
+
   process.on("SIGINT", () => {
     console.log("[sync] SIGINT received, stopping watcher…");
+    clearInterval(pullTimer);
     watcher.close().then(() => process.exit(0));
   });
   process.on("SIGTERM", () => {
+    clearInterval(pullTimer);
     watcher.close().then(() => process.exit(0));
   });
 }

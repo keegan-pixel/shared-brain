@@ -81,4 +81,29 @@ export class ApiClient {
   reportError(input: { filePath: string; contentHash: string; errorMessage: string }) {
     return this.req<{ ok: boolean }>("/api/sync/log", { body: input });
   }
+
+  /**
+   * Phase F4d — pull wiki pages updated on the platform since `since`,
+   * for the local agent to materialize as markdown files in the vault.
+   * `since` may be omitted for the agent's first-ever pull (defaults to
+   * 30 days ago server-side).
+   */
+  pull(input: { since?: string }) {
+    const qs = input.since ? `?since=${encodeURIComponent(input.since)}` : "";
+    return this.req<{
+      pulled_at: string;
+      since: string;
+      cursor: string;
+      page_count: number;
+      pages: Array<{
+        id: string;
+        filePath: string;
+        title: string;
+        body: string;
+        contentHash: string;
+        updatedAt: string;
+        hasExistingLog: boolean;
+      }>;
+    }>(`/api/sync/pull${qs}`, { method: "GET" });
+  }
 }
