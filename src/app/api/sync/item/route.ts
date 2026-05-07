@@ -26,7 +26,7 @@ export const POST = handle(async (req: Request) => {
   const { orgId } = await resolveSyncOrg();
 
   const [project] = await db
-    .select({ id: projects.id })
+    .select({ id: projects.id, spaceId: projects.spaceId })
     .from(projects)
     .innerJoin(spaces, eq(projects.spaceId, spaces.id))
     .where(and(eq(projects.id, body.projectId), eq(spaces.orgId, orgId)));
@@ -100,7 +100,14 @@ export const POST = handle(async (req: Request) => {
     entityType: "item",
     entityId: itemId,
     summary: `${action === "created" ? "Created" : "Updated"} task "${body.title}" from ${body.filePath}`,
-    metadata: { filePath: body.filePath, status: body.status },
+    // Include spaceId in metadata so the activity feed's space filter
+    // (which checks metadata.spaceId) catches synced items.
+    metadata: {
+      filePath: body.filePath,
+      status: body.status,
+      spaceId: project.spaceId,
+      projectId: body.projectId,
+    },
   });
 
   // Index any [[wikilinks]] that appear in the item title or content.

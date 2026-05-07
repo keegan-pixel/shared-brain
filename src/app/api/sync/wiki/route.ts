@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { vaultSyncLog, wikiPages } from "@/lib/db/schema";
+import { spaces, vaultSyncLog, wikiPages } from "@/lib/db/schema";
 import { handle, parseJson } from "@/lib/api";
 import { embed } from "@/lib/embeddings";
 import { logActivity } from "@/lib/activity";
@@ -21,6 +21,31 @@ const Schema = z.object({
   extractedText: z.string().optional(),
   extractedWordCount: z.number().int().nonnegative().optional(),
 });
+
+/**
+ * Map a vault file path to the space it belongs to so the activity feed's
+ * space filter (which checks metadata.spaceId) can scope synced wiki
+ * pages correctly. Returns null for cross-cutting / global content like
+ * `Knowledge/`, `Pipeline/`, `Meetings/` (top-level), `Dashboard/`, etc.
+ */
+async function deriveSpaceIdFromPath(
+  orgId: string,
+  filePath: string,
+): Promise<string | null> {
+  const segs = filePath.split("/");
+  if (segs.length < 2) return null;
+  let spaceName: string | null = null;
+  if (segs[0] === "Clients") spaceName = segs[1];
+  else if (segs[0] === "SimHouse.io") spaceName = "SimHouse.io";
+  else if (segs[0] === "Coaching") spaceName = "Coaching";
+  if (!spaceName) return null;
+  const [row] = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(and(eq(spaces.orgId, orgId), eq(spaces.name, spaceName)))
+    .limit(1);
+  return row?.id ?? null;
+}
 
 /**
  * Build the input string we send to the embedding model. For prose pages
@@ -136,6 +161,10 @@ export const POST = handle(async (req: Request) => {
       },
     });
 
+  // Resolve which space this file belongs to so the activity-feed
+  // space filter scopes correctly. Null for cross-cutting content.
+  const derivedSpaceId = await deriveSpaceIdFromPath(orgId, body.filePath);
+
   await logActivity({
     orgId,
     actorAgent: SYNC_ACTOR,
@@ -143,7 +172,10 @@ export const POST = handle(async (req: Request) => {
     entityType: "wiki_page",
     entityId: pageId,
     summary: `${logRow ? "Updated" : "Created"} wiki page "${body.title}" from ${body.filePath}`,
-    metadata: { filePath: body.filePath },
+    metadata: {
+      filePath: body.filePath,
+      ...(derivedSpaceId ? { spaceId: derivedSpaceId } : {}),
+    },
   });
 
   await indexEntityLinks({
