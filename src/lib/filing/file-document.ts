@@ -25,9 +25,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { wikiPages, vaultSyncLog } from "@/lib/db/schema";
+import { filingRules, wikiPages, vaultSyncLog } from "@/lib/db/schema";
 import { logActivity } from "@/lib/activity";
 import { embed, isEmbeddingsConfigured } from "@/lib/embeddings";
 import { indexEntityLinks } from "@/lib/connections/extract";
@@ -95,15 +95,69 @@ function renderBody(fm: Record<string, unknown>, content: string): string {
   return `${lines.join("\n")}${content}`;
 }
 
+/**
+ * Phase F4 v3 — apply learned filing rules. Inspect the document's
+ * frontmatter / source for known match-kinds (e.g. gmail_from) and
+ * return the first matching rule's target_path. Returns null if no
+ * rule applies. Rules are owned by the org, ordered by hit_count
+ * desc so the most-confirmed pattern wins.
+ */
+async function applyFilingRules(
+  orgId: string,
+  input: FileDocumentInput,
+): Promise<{ targetFolder: string; matchKind: string; matchValue: string } | null> {
+  const fm = (input.frontmatter ?? {}) as Record<string, unknown>;
+  const candidates: Array<{ kind: string; value: string }> = [];
+  if (typeof fm.email_from === "string" && fm.email_from.length > 0) {
+    candidates.push({ kind: "gmail_from", value: fm.email_from });
+  }
+  // (Future: meeting_attendee, drive_folder_id, etc.)
+  if (candidates.length === 0) return null;
+
+  for (const c of candidates) {
+    const [hit] = await db
+      .select()
+      .from(filingRules)
+      .where(
+        and(
+          eq(filingRules.orgId, orgId),
+          eq(filingRules.matchKind, c.kind),
+          eq(filingRules.matchValue, c.value),
+        ),
+      )
+      .orderBy(desc(filingRules.hitCount))
+      .limit(1);
+    if (hit) {
+      return { targetFolder: hit.targetPath, matchKind: c.kind, matchValue: c.value };
+    }
+  }
+  return null;
+}
+
 export async function fileDocument(input: FileDocumentInput): Promise<FileDocumentResult> {
-  const conf = input.confidence ?? 0;
-  const wantsTarget = !!input.targetPath?.trim();
+  // Phase F4 v3: consult learned rules BEFORE falling back to AI
+  // confidence-based routing. If a rule matches, use the rule's
+  // target folder + the document title to build the final path,
+  // and treat as high-confidence (rules are user-confirmed).
+  const ruleHit = await applyFilingRules(input.orgId, input);
+  let resolvedTargetPath = input.targetPath;
+  let resolvedConfidence = input.confidence;
+  let resolvedReasoning = input.reasoning;
+  if (ruleHit) {
+    const safeName = safeFilenameSegment(input.title);
+    resolvedTargetPath = `${ruleHit.targetFolder.replace(/\/$/, "")}/${safeName}.md`;
+    resolvedConfidence = 1.0;
+    resolvedReasoning = `Learned rule: ${ruleHit.matchKind}=${ruleHit.matchValue} → ${ruleHit.targetFolder}`;
+  }
+
+  const conf = resolvedConfidence ?? 0;
+  const wantsTarget = !!resolvedTargetPath?.trim();
   const routedToInbox = !wantsTarget || conf < FILE_DOCUMENT_CONFIDENCE_THRESHOLD;
 
   const safeTitle = safeFilenameSegment(input.title);
   const filePath = routedToInbox
     ? `${INBOX_FOLDER}/${safeTitle}.md`
-    : input.targetPath!;
+    : resolvedTargetPath!;
 
   // Frontmatter that always rides along with filed documents.
   const fm: Record<string, unknown> = {
@@ -119,9 +173,9 @@ export async function fileDocument(input: FileDocumentInput): Promise<FileDocume
     // Stamp the path the AI suggested but didn't get to use, so the
     // Phase F4 v3 reconciliation loop can compare against the path
     // the user ultimately moves the file to.
-    if (wantsTarget) fm.suggested_path = input.targetPath;
-    if (input.confidence !== undefined) fm.confidence = input.confidence;
-    if (input.reasoning) fm.filing_reason = input.reasoning;
+    if (wantsTarget) fm.suggested_path = resolvedTargetPath;
+    if (resolvedConfidence !== undefined) fm.confidence = resolvedConfidence;
+    if (resolvedReasoning) fm.filing_reason = resolvedReasoning;
   }
 
   const body = renderBody(fm, input.content);
@@ -237,15 +291,16 @@ export async function fileDocument(input: FileDocumentInput): Promise<FileDocume
     entityId: pageId,
     summary: routedToInbox
       ? `Filed "${input.title}" → Inbox (confidence ${(conf * 100).toFixed(0)}%)`
-      : `Filed "${input.title}" → ${filePath}${input.reasoning ? ` (${input.reasoning})` : ""}`,
+      : `Filed "${input.title}" → ${filePath}${resolvedReasoning ? ` (${resolvedReasoning})` : ""}`,
     metadata: {
       filePath,
       routedToInbox,
       action,
-      ...(input.targetPath ? { suggestedPath: input.targetPath } : {}),
-      ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+      ...(resolvedTargetPath ? { suggestedPath: resolvedTargetPath } : {}),
+      ...(resolvedConfidence !== undefined ? { confidence: resolvedConfidence } : {}),
       ...(input.source ? { source: input.source } : {}),
-      ...(input.reasoning ? { reasoning: input.reasoning } : {}),
+      ...(resolvedReasoning ? { reasoning: resolvedReasoning } : {}),
+      ...(ruleHit ? { learned_rule: { kind: ruleHit.matchKind, value: ruleHit.matchValue } } : {}),
     },
   });
 
@@ -255,8 +310,8 @@ export async function fileDocument(input: FileDocumentInput): Promise<FileDocume
     routedToInbox,
     reason: routedToInbox
       ? wantsTarget
-        ? `Confidence ${(conf * 100).toFixed(0)}% < ${(FILE_DOCUMENT_CONFIDENCE_THRESHOLD * 100).toFixed(0)}% threshold; routed to Inbox. Suggested path was: ${input.targetPath}`
+        ? `Confidence ${(conf * 100).toFixed(0)}% < ${(FILE_DOCUMENT_CONFIDENCE_THRESHOLD * 100).toFixed(0)}% threshold; routed to Inbox. Suggested path was: ${resolvedTargetPath}`
         : "No targetPath provided; routed to Inbox for user review."
-      : input.reasoning ?? "AI-classified destination",
+      : resolvedReasoning ?? "AI-classified destination",
   };
 }

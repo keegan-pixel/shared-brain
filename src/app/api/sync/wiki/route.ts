@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { spaces, vaultSyncLog, wikiPages } from "@/lib/db/schema";
+import { filingRules, spaces, vaultSyncLog, wikiPages } from "@/lib/db/schema";
 import { handle, parseJson } from "@/lib/api";
 import { embed } from "@/lib/embeddings";
 import { logActivity } from "@/lib/activity";
@@ -103,8 +103,126 @@ export const POST = handle(async (req: Request) => {
     tags: body.tags ?? [],
   };
 
+  // ─── Phase F4 v3 — Move detection + rule learning ────────────────
+  // When a no-log-row push comes in (potential new file), check
+  // whether it's actually a MOVE of an existing Inbox-routed page.
+  // If so: update the existing page's filePath in place + delete the
+  // stale Inbox log row + record the rule for future short-circuit.
+  let movedFromInbox: { fromPath: string; pageId: string; frontmatter: Record<string, unknown> } | null = null;
+  if (!logRow) {
+    const [candidate] = await db
+      .select({ id: wikiPages.id, metadata: wikiPages.metadata, fromLog: vaultSyncLog.filePath })
+      .from(wikiPages)
+      .innerJoin(
+        vaultSyncLog,
+        and(eq(vaultSyncLog.entityType, "wiki_page"), eq(vaultSyncLog.entityId, wikiPages.id)),
+      )
+      .where(
+        and(
+          eq(wikiPages.orgId, orgId),
+          eq(wikiPages.title, body.title),
+          eq(vaultSyncLog.contentHash, body.contentHash),
+        ),
+      )
+      .limit(1);
+    if (candidate) {
+      const meta = (candidate.metadata ?? {}) as {
+        platform_origin?: string;
+        frontmatter?: Record<string, unknown>;
+      };
+      const fm = meta.frontmatter ?? {};
+      // Only treat as a learnable move if the source was an
+      // Inbox-routed file_document write. Regular vault-pushed-up
+      // files moving around shouldn't trigger rule creation — that
+      // would be noisy.
+      if (meta.platform_origin === "file_document" && fm.filed_to_inbox) {
+        movedFromInbox = { fromPath: candidate.fromLog, pageId: candidate.id, frontmatter: fm };
+        // Delete the stale Inbox log row; the new one gets written below.
+        await db.delete(vaultSyncLog).where(eq(vaultSyncLog.filePath, candidate.fromLog));
+      }
+    }
+  }
+
   let pageId: string;
-  if (logRow?.entityType === "wiki_page" && logRow.entityId) {
+  if (movedFromInbox) {
+    // Update the existing page in place — clear filed_to_inbox + the
+    // suggested_path stamp since the user has now placed it where it
+    // belongs. Update the filePath metadata to the new location.
+    const oldFm = (movedFromInbox.frontmatter ?? {}) as Record<string, unknown>;
+    const cleanedFm: Record<string, unknown> = { ...oldFm };
+    delete cleanedFm.filed_to_inbox;
+    delete cleanedFm.suggested_path;
+    delete cleanedFm.confidence;
+    delete cleanedFm.filing_reason;
+    const movedMetadata = {
+      filePath: body.filePath,
+      frontmatter: cleanedFm,
+      tags: body.tags ?? [],
+      // Drop platform_origin so the pull endpoint doesn't keep
+      // surfacing this page as needing materialization.
+    };
+    const [updated] = await db
+      .update(wikiPages)
+      .set({
+        title: body.title,
+        content: body.content,
+        metadata: movedMetadata,
+        ...(embedding ? { embedding } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(wikiPages.id, movedFromInbox.pageId), eq(wikiPages.orgId, orgId)))
+      .returning({ id: wikiPages.id });
+    pageId = updated.id;
+
+    // ── RULE LEARNING ──────────────────────────────────────────────
+    // If the original Inbox file had a recognizable source pattern
+    // (e.g. `email_from`), record the {match → target_path} mapping
+    // so the next file_document call with the same source skips
+    // Inbox and goes straight to this folder.
+    const targetFolder = body.filePath.includes("/")
+      ? body.filePath.slice(0, body.filePath.lastIndexOf("/")) + "/"
+      : "/";
+
+    const ruleCandidates: Array<{ kind: string; value: string }> = [];
+    if (typeof oldFm.email_from === "string" && oldFm.email_from.length > 0) {
+      ruleCandidates.push({ kind: "gmail_from", value: oldFm.email_from });
+    }
+    // (Future: meeting_attendee, drive_folder_id, etc.)
+
+    for (const rule of ruleCandidates) {
+      const existing = await db
+        .select()
+        .from(filingRules)
+        .where(
+          and(
+            eq(filingRules.orgId, orgId),
+            eq(filingRules.matchKind, rule.kind),
+            eq(filingRules.matchValue, rule.value),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) {
+        await db
+          .update(filingRules)
+          .set({
+            targetPath: targetFolder,
+            hitCount: existing[0].hitCount + 1,
+            lastMatchedAt: new Date(),
+          })
+          .where(eq(filingRules.id, existing[0].id));
+      } else {
+        await db.insert(filingRules).values({
+          orgId,
+          matchKind: rule.kind,
+          matchValue: rule.value,
+          targetPath: targetFolder,
+        });
+      }
+      console.info(
+        `[F4 v3] learned filing rule: ${rule.kind}=${rule.value} → ${targetFolder} (from move out of Inbox)`,
+      );
+    }
+  } else if (logRow?.entityType === "wiki_page" && logRow.entityId) {
     const [updated] = await db
       .update(wikiPages)
       .set({
