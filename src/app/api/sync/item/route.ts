@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { db } from "@/lib/db/client";
 import { items, itemStatusValues, itemTypeValues, projects, spaces, vaultSyncLog } from "@/lib/db/schema";
 import { ApiError, handle, parseJson } from "@/lib/api";
@@ -38,6 +39,29 @@ export const POST = handle(async (req: Request) => {
     .select()
     .from(vaultSyncLog)
     .where(eq(vaultSyncLog.filePath, lookupKey));
+
+  // Compute the same hash the wiki route uses for its skip-if-unchanged
+  // check, but for items: title + content + status. This MUST match the
+  // SQL `md5(title || content || status)` written below so the
+  // round-trip comparison is consistent.
+  const incomingHash = createHash("md5")
+    .update(`${body.title}${body.content ?? ""}${body.status}`)
+    .digest("hex");
+
+  // Skip-if-unchanged: if we already have an item-typed log row with the
+  // same hash, no real change happened — return early. Without this,
+  // every full-vault sync pass re-stamps every task as "updated" and
+  // writes a fresh activity entry, flooding the feed with phantom
+  // updates. (Bug found 2026-05-06: 262+ spurious updates per daemon
+  // restart because client_tasks loops every line and POSTs each one.)
+  if (
+    logRow &&
+    logRow.entityType === "item" &&
+    logRow.entityId &&
+    logRow.contentHash === incomingHash
+  ) {
+    return NextResponse.json({ ok: true, skipped: true, itemId: logRow.entityId });
+  }
 
   let itemId: string;
   let action: "created" | "updated";
