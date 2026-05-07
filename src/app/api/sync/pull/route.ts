@@ -55,9 +55,14 @@ function buildBody(args: {
   content: string;
   frontmatter: Record<string, unknown> | undefined;
 }): string {
-  // If frontmatter is present and non-empty, prepend it as YAML.
+  // Sort keys alphabetically — must match file_document's renderBody
+  // for SHA1 hashes to agree across initial write / pull / agent-on-disk.
+  // PostgreSQL JSONB does not preserve insertion order, so a stable
+  // ordering is what makes the round-trip byte-deterministic.
   const fm = args.frontmatter ?? {};
-  const fmKeys = Object.keys(fm);
+  const fmKeys = Object.keys(fm)
+    .filter((k) => fm[k] !== null && fm[k] !== undefined)
+    .sort();
   if (fmKeys.length === 0) return args.content;
   const yamlLines: string[] = ["---"];
   for (const k of fmKeys) {

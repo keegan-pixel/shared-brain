@@ -75,7 +75,16 @@ function safeFilenameSegment(s: string): string {
 }
 
 function renderBody(fm: Record<string, unknown>, content: string): string {
-  const keys = Object.keys(fm).filter((k) => fm[k] !== null && fm[k] !== undefined);
+  // Sort keys alphabetically. PostgreSQL JSONB doesn't preserve
+  // insertion order, so we need a stable ordering across:
+  //   (a) the initial write here (before storage),
+  //   (b) the pull endpoint's re-render (after JSONB round-trip),
+  //   (c) the agent's hash of the file on disk.
+  // Without sorting, pull's body bytes ≠ file_document's body bytes
+  // → SHA1s diverge → move-detection in /api/sync/wiki misses.
+  const keys = Object.keys(fm)
+    .filter((k) => fm[k] !== null && fm[k] !== undefined)
+    .sort();
   if (keys.length === 0) return content;
   const lines: string[] = ["---"];
   for (const k of keys) {
