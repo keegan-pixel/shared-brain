@@ -38,7 +38,7 @@ why. Updated at the end of each phase.
 | 5c — Composio integration | ✅ Complete | 2026-05-01 | Universal MCP endpoint + `x-consumer-api-key` (ADR-020): chat connects to `connect.composio.dev/mcp`, gets the meta-tool surface (SEARCH / EXECUTE / etc.), per-call routing across all 19 accounts |
 | ~~5d — Live artifacts~~ | ❌ Dropped | 2026-05-01 | ADR-022: lookups/actions through nav are faster than chat-rendered duplicates; valuable subset (link previews + action confirmations) already covered by `[[wikilink]]` rendering + tool pills |
 | 6 — Agent Operating Instructions | ✅ Complete | 2026-05-01 | Profile.md (13 sections), `get_operating_instructions` + `record_session_summary` MCP+chat tools, `/api/operating-instructions` Bearer-auth endpoint, `npm run install-skill claude` CLI; Assistant/CLAUDE.md now a short pointer (ADR-023). Awaiting Active State + Key People content from Keegan. |
-| 4b — Background AI edges | ⏳ Queued | — | Cron-driven keyword overlap + AI-suggested connections; runs in parallel, no blocking |
+| 4b — Background AI edges | ✅ v1 Complete | 2026-05-07 | Cron-driven `keyword_overlap` + `co_mention` edges (Vercel Cron, every 6h). `ai_suggested` deferred to v2 (needs LLM cost analysis). |
 | F4 — Bidirectional ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI · **F4d (NEW): vault pull-down so brain → local Obsidian stays mirrored** (ADR-024) |
 | 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
 | 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
@@ -206,6 +206,65 @@ already exists. The work is making the MCP feel mobile-first.
 - Native iOS/Android app
 - PWA wrapper around the existing web UI (kanban + wiki nav don't
   translate well to phones; Claude is the mobile UI)
+
+---
+
+## Phase 4b — Background AI Edges (v1)
+
+**Shipped:** 2026-05-07
+**Spec target:** Phase 4
+
+### What was built
+Two new edge kinds in the connection graph, computed on a Vercel
+Cron schedule:
+
+- **`keyword_overlap`** — every wiki_page + item gets a top-30
+  keyword set extracted from `title + content + extracted_text`
+  (stop-word filtered, ≥4-char tokens, no pure digits). Inverted-
+  index lookup finds candidate pairs sharing ≥1 keyword; Jaccard
+  scored; top-8 per entity above thresholds (Jaccard ≥0.15, shared
+  ≥5) become edges. Stored as `backlinks` rows with
+  `kind='keyword_overlap'`, `score=Jaccard`, `evidence={shared_keywords:[top 5]}`.
+- **`co_mention`** — person/company pages identified by filePath
+  (`Pipeline/`, `Partners/`, `SimHouse.io/Clients/`,
+  `Coaching/Clients/`, `Clients/<X>/_Overview.md`). For each non-
+  person doc, find which person pages it mentions via case-
+  insensitive title-substring match in content. Pairs co-mentioned
+  in ≥1 doc get edges with `score = 1 - 1/(1+doc_count)`,
+  `evidence={docs:[top 5], doc_count}`.
+
+Both are idempotent — delete kind-scoped edges for processed
+entities, then re-insert. Safe to run any time.
+
+### Cron + auth
+- `vercel.json` schedules `/api/cron/connections` every 6 hours
+  (`0 */6 * * *`).
+- Route accepts `Authorization: Bearer <CRON_SECRET>` (Vercel sets
+  automatically) OR `<MCP_API_KEY>` (manual invocation for testing).
+- Allowed through Clerk middleware via the `/api/cron/(.*)` matcher.
+
+### Verification (initial run, ViaOps org)
+- 926 entities scanned (wiki + items)
+- **2,345 keyword_overlap edges** generated
+- **3 co_mention edges** generated (97 person pages, 5 docs with ≥2
+  people)
+- Total runtime: 3.8s (well under serverless timeout)
+
+### Divergences from spec
+- `ai_suggested` edges (third kind originally specced) deferred to
+  v2. Schema field is in place; needs LLM cost analysis before
+  enabling. Logged in parking lot.
+- co_mention generated only 3 edges in initial run because the
+  substring matcher requires full person-page titles to match
+  verbatim ("Matt Frary"), not first-name shortcuts. This is a
+  precision-over-recall trade-off; v2 should add nickname/alias
+  resolution. Logged in parking lot.
+
+### Files
+- `src/lib/connections/background.ts` (compute logic)
+- `src/app/api/cron/connections/route.ts` (handler)
+- `vercel.json` (schedule)
+- `src/proxy.ts` (allow `/api/cron/*` past Clerk)
 
 ---
 
@@ -809,6 +868,33 @@ places when one is resolved.
   `agent/node_modules` from commit `9cbf338` (~534k extra lines).
   Cosmetic; doesn't affect working tree. Clean up with
   `git filter-repo` + force-push if the repo size ever bothers us.
+
+### Phase 4b v2 follow-ups (queued)
+
+Items punted from the v1 ship of background AI edges. Revisit when
+real-world usage reveals priority.
+
+- **`ai_suggested` edges** — LLM-driven relationship suggestions for
+  recently-updated entities. Schema field is in place. Needs:
+  - Cost-budget analysis (how many entities × how often × token
+    cost per call)
+  - Rate-limit / batching strategy
+  - Distinct value beyond `semantic_similar` (which already does
+    embedding-similarity). Probably: structured "type of
+    relationship" labels (e.g. *competitor*, *successor*, *alias*).
+- **co_mention nickname resolution** — current substring matcher
+  requires full title verbatim ("Matt Frary"). Real meeting notes
+  use first names ("Matt"). v2: per-person alias list pulled from
+  frontmatter `aliases:` field and/or generated from
+  Pipeline/_Index.md. Disambiguate when multiple people share a
+  first name.
+- **Incremental cron pass** — current implementation re-scans every
+  entity in every org on every cron tick. As the graph grows past
+  ~10k entities this will hit timeout limits. v2: track
+  `last_processed_at` per entity and only re-scan recently-modified
+  ones, with a periodic full re-scan (e.g. weekly).
+
+---
 
 ### Parking lot — post-MVP feedback (revisit after main build)
 
