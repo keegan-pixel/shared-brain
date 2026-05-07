@@ -10,6 +10,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/sync(.*)",
   // Phase 6: serves Profile.md to MCP clients (Bearer auth in the route).
   "/api/operating-instructions",
+  // Phase 4b: cron endpoint for background AI edges (CRON_SECRET / MCP_API_KEY).
+  "/api/cron/(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
