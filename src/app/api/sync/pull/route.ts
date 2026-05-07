@@ -21,7 +21,7 @@
  * Auth: same Bearer pattern as other /api/sync/* routes.
  */
 
-import { eq, gt, and } from "drizzle-orm";
+import { eq, gt, and, isNull } from "drizzle-orm";
 import { wikiPages, vaultSyncLog } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
 import { resolveSyncOrg } from "@/lib/sync/context";
@@ -95,18 +95,26 @@ export const GET = handle(async (req: Request) => {
     );
   }
 
-  // Pull wiki pages updated since `since`. Join vault_sync_log to get
-  // the canonical filePath if one exists; pages without a log row are
-  // platform-only and get a fallback path.
+  // Pull only PLATFORM-CREATED wiki pages — those with no
+  // vault_sync_log entry. Pages pushed up from the local vault
+  // already have a local markdown file (with possibly-divergent
+  // frontmatter formatting), so re-materializing them would create
+  // false conflicts. Pure platform entries (chat session summaries,
+  // mobile-created pages, future multi-user contributions) are the
+  // ones we actually need to bring down.
+  //
+  // Also exclude file_artifact pages (those with blob_url set) —
+  // those represent binary files that live in Vercel Blob, not
+  // markdown that should land in the vault.
   const rows = await db
     .select({
       id: wikiPages.id,
       title: wikiPages.title,
       content: wikiPages.content,
+      blobUrl: wikiPages.blobUrl,
       metadata: wikiPages.metadata,
       updatedAt: wikiPages.updatedAt,
       logFilePath: vaultSyncLog.filePath,
-      logHash: vaultSyncLog.contentHash,
     })
     .from(wikiPages)
     .leftJoin(
@@ -116,7 +124,14 @@ export const GET = handle(async (req: Request) => {
         eq(vaultSyncLog.entityId, wikiPages.id),
       ),
     )
-    .where(and(eq(wikiPages.orgId, orgId), gt(wikiPages.updatedAt, since)));
+    .where(
+      and(
+        eq(wikiPages.orgId, orgId),
+        gt(wikiPages.updatedAt, since),
+        isNull(vaultSyncLog.filePath),
+        isNull(wikiPages.blobUrl),
+      ),
+    );
 
   // Build the agent-friendly response. We pre-render the body the
   // agent should write (frontmatter + content) and pre-compute the
