@@ -337,6 +337,7 @@ See ADR-023 for the architecture rationale (three-layer drift defense: standing 
 - [ ] Workflow tool `compose_proposal({ client, template_name? })`
 - [ ] Workflow tool `log_thought({ text, project? })` — quick capture
 - [ ] Workflow tool `find_last_context({ person_or_company })` — searches emails + meeting notes + brain
+- [ ] Workflow tool `file_document({ source, hint? })` — accepts a file (upload, URL, or email-attachment ref), runs the existing F1/F2/F3 extraction pipeline, uses operating instructions + active state to auto-classify the right vault location, applies tags + frontmatter. Inherits the dropped F4c capability and adds AI-driven filing. Mobile-first.
 - [ ] User profile (Phase 6) feeds workflow defaults — invoice template style, tone, brand
 - [ ] Workflow tools return brief confirmations + entity links (mobile-friendly response shape)
 - [ ] **Exit criterion:** "Generate a new XPFlow invoice and send it to Mark, Deanna, Matt" from phone → one prompt → one MCP roundtrip → done.

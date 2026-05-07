@@ -40,7 +40,8 @@ why. Updated at the end of each phase.
 | 6 — Agent Operating Instructions | ✅ Complete | 2026-05-01 | Profile.md (13 sections), `get_operating_instructions` + `record_session_summary` MCP+chat tools, `/api/operating-instructions` Bearer-auth endpoint, `npm run install-skill claude` CLI; Assistant/CLAUDE.md now a short pointer (ADR-023). Awaiting Active State + Key People content from Keegan. |
 | 4b — Background AI edges | ✅ v1 Complete | 2026-05-07 | Cron-driven `keyword_overlap` + `co_mention` edges (Vercel Cron, every 6h). `ai_suggested` deferred to v2 (needs LLM cost analysis). |
 | F4d — Vault pull-down | ✅ Complete | 2026-05-07 | `/api/sync/pull` returns platform-only wiki pages (no vault_sync_log, no blob_url); agent's `pullDown()` materializes them at their filePath; pull endpoint also creates the log row server-side so round-trip is idempotent. Wired into agent fullScan + 5-min periodic in watch mode. End-to-end smoke test passed. |
-| F4a/b/c — Multi-source ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI |
+| F4a/b — Multi-source ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest |
+| ~~F4c — Manual upload UI~~ | ❌ Dropped | 2026-05-07 | Daemon already covers vault file ingestion; mobile case better served by a Phase 7 `file_document` workflow tool that uses Claude to auto-classify + file. A dumb-pipe web upload form is strictly worse than either path. |
 | 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
 | 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
 
@@ -869,6 +870,39 @@ places when one is resolved.
   `agent/node_modules` from commit `9cbf338` (~534k extra lines).
   Cosmetic; doesn't affect working tree. Clean up with
   `git filter-repo` + force-push if the repo size ever bothers us.
+
+### Phase F4c — Manual upload UI (dropped)
+
+**Date:** 2026-05-07
+**Status:** Dropped before implementation; not built.
+
+**What it would have been:** a drag-drop web form on the platform
+that accepts a file, uploads to Vercel Blob, runs the same content
+extraction pipeline the vault sync agent uses, and creates a wiki
+page entry.
+
+**Why dropped:**
+- The launchd daemon already covers this for any file dropped into
+  `~/Documents/ViaOps/`. Faster than opening a web form, picking a
+  file, picking a destination space.
+- The mobile use case (on-the-go file capture) is better served by
+  a Phase 7 workflow tool (`file_document(source, hint?)`) that
+  Claude can invoke from the mobile app. AI auto-classifies the
+  document, applies routing rules from `Profile.md`, places it in
+  the right vault path with correct tags. Strictly more useful than
+  a dumb-pipe form.
+- The only remaining persona is "user with no daemon, no Claude."
+  Not Keegan today; not multi-user contributors realistically.
+
+**Where the capability lives instead:** Phase 7 — Mobile via Claude.
+The `file_document` workflow tool inherits the F4c value prop
+(file → platform) but adds AI-driven classification and works from
+mobile.
+
+**Revisit if:** a real user emerges who has neither the daemon
+running nor a Claude client, and needs to contribute files.
+
+---
 
 ### Phase 4b v2 follow-ups (queued)
 
