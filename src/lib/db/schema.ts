@@ -6,6 +6,7 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
   customType,
   real,
   integer,
@@ -211,6 +212,84 @@ export const vaultSyncLog = pgTable(
   ],
 );
 
+// ─── Phase F4 v2 — Composio sync configs ────────────────────────────
+
+export const syncConfigModeValues = ["off", "manual", "auto"] as const;
+export type SyncConfigMode = (typeof syncConfigModeValues)[number];
+
+/**
+ * One row per (org, Composio connected account). Lets the user toggle
+ * auto-sync per connection from the platform's Settings → Sync UI,
+ * and the cron job at /api/cron/auto-sync walks active rows and pulls
+ * new items via Composio → file_document → vault.
+ */
+export const syncConfigs = pgTable(
+  "sync_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Composio account ID (e.g. "gmail_berret-drinn"). */
+    connectionId: text("connection_id").notNull(),
+    /** Composio toolkit slug (gmail, googlecalendar, googledrive, etc.). */
+    toolkit: text("toolkit").notNull(),
+    /** Human-readable label (e.g. "ViaOps Gmail (keegan@viaops.co)"). */
+    label: text("label").notNull(),
+    /** Off = ignore. Manual = surface in chat tools but don't auto-poll. Auto = cron polls. */
+    mode: text("mode", { enum: syncConfigModeValues }).notNull().default("off"),
+    /**
+     * Free-form per-toolkit filter. e.g. { query: "is:unread", labels: ["INBOX"] }
+     * for Gmail, { folder_ids: [...] } for Drive. Adapter-specific.
+     */
+    sourceFilter: jsonb("source_filter").$type<Record<string, unknown>>().notNull().default({}),
+    /** Last successful poll. Used as the "since" cursor for the next run. */
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Last cron-run summary (item counts, errors). Surfaced in the UI. */
+    lastSyncSummary: jsonb("last_sync_summary").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sync_configs_org_idx").on(t.orgId),
+    index("sync_configs_mode_idx").on(t.mode),
+    uniqueIndex("sync_configs_org_conn_uniq").on(t.orgId, t.connectionId),
+  ],
+);
+
+// ─── Phase F4 v3 — Active-learning filing rules (forward-declared) ──
+// Schema lives here so v3 can land later without migration ordering.
+
+/**
+ * Learned rules from user reconciliation. When a user moves a file
+ * out of `Inbox/` to a real folder, we record (source_pattern,
+ * target_path) so file_document's classifier can short-circuit to
+ * the right path on subsequent matches.
+ */
+export const filingRules = pgTable(
+  "filing_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** What kind of source the rule matches against. e.g. "gmail_from", "title_contains", "source_prefix". */
+    matchKind: text("match_kind").notNull(),
+    /** The pattern value. e.g. "matt@xpflow.com" for gmail_from. */
+    matchValue: text("match_value").notNull(),
+    /** Where to file matches. e.g. "Clients/XP Flow/Meetings/". */
+    targetPath: text("target_path").notNull(),
+    /** How many times this rule has been confirmed by the user. Higher = more confidence. */
+    hitCount: integer("hit_count").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastMatchedAt: timestamp("last_matched_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("filing_rules_org_idx").on(t.orgId),
+    index("filing_rules_match_idx").on(t.matchKind, t.matchValue),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
 export type Space = typeof spaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
@@ -219,3 +298,5 @@ export type WikiPage = typeof wikiPages.$inferSelect;
 export type Backlink = typeof backlinks.$inferSelect;
 export type ActivityFeedEntry = typeof activityFeed.$inferSelect;
 export type VaultSyncEntry = typeof vaultSyncLog.$inferSelect;
+export type SyncConfig = typeof syncConfigs.$inferSelect;
+export type FilingRule = typeof filingRules.$inferSelect;

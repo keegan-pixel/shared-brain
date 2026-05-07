@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/connections",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/auto-sync",
+      "schedule": "0 7 * * *"
     }
   ]
 }

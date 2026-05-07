@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, BookOpen, FolderKanban, Home } from "lucide-react";
+import { Activity, BookOpen, FolderKanban, Home, RefreshCw } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -61,6 +61,15 @@ export async function Sidebar() {
           className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
         >
           <BookOpen className="h-4 w-4" /> Wiki
+        </Link>
+        <div className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+          Settings
+        </div>
+        <Link
+          href="/settings/sync"
+          className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
+        >
+          <RefreshCw className="h-4 w-4" /> Sync
         </Link>
       </nav>
     </aside>
