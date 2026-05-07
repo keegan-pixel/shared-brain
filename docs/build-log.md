@@ -39,7 +39,8 @@ why. Updated at the end of each phase.
 | ~~5d — Live artifacts~~ | ❌ Dropped | 2026-05-01 | ADR-022: lookups/actions through nav are faster than chat-rendered duplicates; valuable subset (link previews + action confirmations) already covered by `[[wikilink]]` rendering + tool pills |
 | 6 — Agent Operating Instructions | ✅ Complete | 2026-05-01 | Profile.md (13 sections), `get_operating_instructions` + `record_session_summary` MCP+chat tools, `/api/operating-instructions` Bearer-auth endpoint, `npm run install-skill claude` CLI; Assistant/CLAUDE.md now a short pointer (ADR-023). Awaiting Active State + Key People content from Keegan. |
 | 4b — Background AI edges | ✅ v1 Complete | 2026-05-07 | Cron-driven `keyword_overlap` + `co_mention` edges (Vercel Cron, every 6h). `ai_suggested` deferred to v2 (needs LLM cost analysis). |
-| F4 — Bidirectional ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI · **F4d (NEW): vault pull-down so brain → local Obsidian stays mirrored** (ADR-024) |
+| F4d — Vault pull-down | ✅ Complete | 2026-05-07 | `/api/sync/pull` returns platform-only wiki pages (no vault_sync_log, no blob_url); agent's `pullDown()` materializes them at their filePath; pull endpoint also creates the log row server-side so round-trip is idempotent. Wired into agent fullScan + 5-min periodic in watch mode. End-to-end smoke test passed. |
+| F4a/b/c — Multi-source ingestion | ⏳ Queued | — | F4a Composio Drive watcher · F4b Gmail attachment auto-ingest · F4c manual upload UI |
 | 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
 | 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
 
