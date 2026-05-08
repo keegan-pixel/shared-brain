@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "spaces_org_name_unique_idx" ON "spaces" USING btree ("org_id","name");

@@ -18,6 +18,10 @@ export const POST = handle(async (req: Request) => {
   const body = await parseJson(req, Schema);
   const { orgId } = await resolveSyncOrg();
 
+  // Pre-check is a best-effort fast path; the unique index on
+  // (org_id, name) is what actually prevents the race (TOCTOU bug
+  // hit on 2026-05-06 — Garden Hero double-create). The insert below
+  // uses ON CONFLICT DO NOTHING + re-fetch to handle concurrent calls.
   const [existing] = await db
     .select()
     .from(spaces)
@@ -27,7 +31,18 @@ export const POST = handle(async (req: Request) => {
   const [created] = await db
     .insert(spaces)
     .values({ orgId, name: body.name, type: body.type })
+    .onConflictDoNothing({ target: [spaces.orgId, spaces.name] })
     .returning();
+
+  // Race lost: someone else inserted the same (org, name) between our
+  // SELECT and our INSERT. Re-fetch and treat as no-op.
+  if (!created) {
+    const [winner] = await db
+      .select()
+      .from(spaces)
+      .where(and(eq(spaces.orgId, orgId), eq(spaces.name, body.name)));
+    return NextResponse.json({ space: winner, created: false });
+  }
 
   await logActivity({
     orgId,

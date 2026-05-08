@@ -200,10 +200,21 @@ export function registerTools(server: McpServer, ctx: McpContext) {
       type: z.enum(["client", "dept", "team"]),
     },
     async ({ name, type }) => {
+      // Idempotent: if a space with this name already exists in the org,
+      // return it instead of creating a duplicate. Backed by the
+      // (org_id, name) unique index.
       const [created] = await db
         .insert(spaces)
         .values({ orgId: ctx.orgId, name, type })
+        .onConflictDoNothing({ target: [spaces.orgId, spaces.name] })
         .returning();
+      if (!created) {
+        const [existing] = await db
+          .select()
+          .from(spaces)
+          .where(and(eq(spaces.orgId, ctx.orgId), eq(spaces.name, name)));
+        return ok({ space: existing, alreadyExisted: true });
+      }
       await logActivity({
         orgId: ctx.orgId,
         actorAgent: ctx.actorAgent,

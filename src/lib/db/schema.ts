@@ -47,7 +47,13 @@ export const spaces = pgTable(
     accessRoles: text("access_roles").array().notNull().default(sql`ARRAY[]::text[]`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("spaces_org_id_idx").on(t.orgId)],
+  (t) => [
+    index("spaces_org_id_idx").on(t.orgId),
+    // Prevent duplicate spaces with the same name within an org. Without
+    // this, /api/sync/space's check-then-insert pattern races under
+    // concurrent calls (caught Garden Hero double-create on 2026-05-06).
+    uniqueIndex("spaces_org_name_unique_idx").on(t.orgId, t.name),
+  ],
 );
 
 export const projects = pgTable(
