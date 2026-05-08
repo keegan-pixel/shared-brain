@@ -308,6 +308,19 @@ The rule keeps the brain a connectivity layer per ADR-026's North
 Star and keeps us out of the feature-arms-race trap that defines
 every other PM tool.
 
+**The same rule applies to Profile.md itself.** Don't bake workflow
+recipes into operating instructions ("if user says X, call A then B
+then C"). That's prescribing orchestration the AI client should be
+choosing per request. Profile.md describes:
+- The primitives that exist and what each returns
+- Standing rules / conventions
+- Routing decisions (which Composio account, which folder)
+
+It does NOT prescribe tool-call sequences. Trust the AI client to
+compose. If a recipe genuinely belongs anywhere, it belongs in a
+saved skill the user explicitly invokes — not in the always-on
+operating instructions every session reads.
+
 ### Full doc pass at every phase boundary
 Every shipped phase requires a sweep across:
 - **Build Log** — status snapshot row + per-phase section with what
