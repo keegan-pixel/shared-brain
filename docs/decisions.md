@@ -20,6 +20,241 @@ Newest at the top.
 
 ---
 
+## ADR-031 — Unify body-hash function on SHA1 + alphabetical-key sort
+
+**Date:** 2026-05-07 · Phase F4 v3 (uncovered during smoke test)
+**Decision:** All three sites that hash a wiki page's body must produce
+identical bytes:
+1. `agent/src/hash.ts` — `sha1(raw)` (the ground truth: bytes on disk)
+2. `src/lib/filing/file-document.ts` — `sha1(renderBody(fm, content))`
+3. `src/app/api/sync/pull/route.ts` — `sha1(buildBody(fm, content))`
+
+Plus: both `renderBody` and `buildBody` sort frontmatter keys
+alphabetically before serializing.
+
+**Context:** F4 v3's move-detection joins `wiki_pages` with
+`vault_sync_log` looking for `(orgId, title, contentHash)` matches —
+when the agent pushes a moved file at a new path, the contentHash
+sent must equal what was stored on the original write. We hit two
+silent divergences during the smoke test:
+
+1. **Hash function drift.** `file_document` was using MD5; pull was
+   using MD5; the agent uses SHA1. Same body, different hash.
+   Move-detection lookups missed silently → duplicate wiki pages,
+   no rules learned.
+2. **JSONB key-order non-determinism.** PostgreSQL JSONB doesn't
+   preserve the insertion order of keys. `file_document` would build
+   `fm` with one order, store to JSONB, pull would read it back in a
+   different order, re-render → byte-different YAML → different SHA1.
+   Even after fixing the algorithm to SHA1 in all three places, the
+   bytes still differed.
+
+**Both fixed in lockstep:**
+- pull/route.ts switched MD5 → SHA1 (commit `0be61a4`)
+- both `renderBody` and `buildBody` now `Object.keys(fm).sort()`
+  before iteration (commit `22f7067`)
+
+**Why this is its own ADR:** the rule "hash and serialization must be
+deterministic across producers + consumers" is a category-of-bug
+rule, not a one-time fix. Future sync paths (e.g. when we add
+file-artifact pull-down beyond markdown) need to follow the same
+discipline. If a fourth site ever hashes a body, it MUST use SHA1
+of the alphabetically-sorted-key body or move-detection breaks
+silently.
+
+**Trade-off:** Loses any ability to use frontmatter key order as
+semantic information (e.g. "title first by convention"). Accepted —
+ordering by convention was never machine-checkable anyway.
+
+---
+
+## ADR-030 — Bidirectional vault sync via pull-down with `platform_origin` flag
+
+**Date:** 2026-05-07 · Phase F4d (final shape)
+**Decision:** Server pull endpoint at `GET /api/sync/pull?since=<ISO>`
+returns wiki pages that need to materialize locally, defined as:
+
+```
+metadata.blob_url IS NULL                       -- not a file artifact
+AND (
+  vault_sync_log.file_path IS NULL              -- pure platform-only entry
+  OR metadata.platform_origin = 'file_document' -- AI-filing engine write
+)
+```
+
+The agent's `pullDown()` (in `agent/src/pull.ts`) materializes each
+returned page at `metadata.filePath` (or `Knowledge/Sessions/<safe-title>.md`
+fallback). Cursor persisted in `agent/.last-pull` survives restarts.
+
+**Context:** The original ADR-024 said "pull-down for offline mirror,"
+but didn't specify what to actually pull. First implementation
+returned every wiki page touched in the time window; that included
+local files getting re-rendered with different YAML formatting →
+566 false conflicts. Filtering to "no log row" excluded the F4 v1
+AI-filing writes (which DO write a log row immediately for round-trip
+duplicate prevention).
+
+The fix is the dual filter above. The `platform_origin` marker is
+written by `file_document` for entries it creates; it's the only
+flag that distinguishes "platform-created, needs local
+materialization" from "vault-pushed-up, already local."
+
+**Round-trip idempotence:** when the agent writes the materialized
+file, chokidar fires `add`, the regular push flow hits `/api/sync/wiki`,
+and the existing `vault_sync_log.contentHash === body.contentHash`
+skip check returns `skipped:true` (assuming hashes match per ADR-031)
+— no duplicate wiki page created.
+
+**Items not pulled:** `items` (kanban tasks) live inside parent
+`_Tasks.md` files, not as standalone files. Pulling them would
+require re-rendering the parent markdown from current task state
+across the whole project. Deferred to v2 if needed.
+
+---
+
+## ADR-029 — Active-learning reconciliation via move-detection
+
+**Date:** 2026-05-07 · Phase F4 v3
+**Decision:** When a user moves a file out of `Inbox/` to a real
+folder, the platform records a `filing_rules` row keyed by a
+recognizable source pattern (currently `gmail_from`; extensible).
+Future calls to `file_document` consult these rules BEFORE
+confidence-based routing, short-circuiting Inbox for matched
+patterns.
+
+**Detection mechanism:** in `/api/sync/wiki`, when an incoming push
+has no matching `vault_sync_log` row at the new filePath, look for
+an existing wiki page with the same `(orgId, title, contentHash)`
+that has `metadata.platform_origin = 'file_document'` AND
+`metadata.frontmatter.filed_to_inbox = true`. If found, treat as a
+MOVE: update the existing page's filePath in place, delete the
+stale Inbox log row, clear the inbox flags from frontmatter, and
+write/upsert a `filing_rules` row with the new target folder.
+
+**Why move-detection (not "I moved it" affordance in UI):** the
+user's natural workflow is dragging files in Obsidian. We piggyback
+on chokidar `unlink` + `add` (which the agent translates into a
+push at the new path) and infer the intent from the data. Zero new
+UI surface; the user just files normally and the system learns.
+
+**Match kinds in v1:** only `gmail_from` (sender email address).
+Extensible by adding new candidate generators in both
+`applyFilingRules` (read side) and the move-detection rule writer
+(write side). Future kinds: `meeting_attendee`, `drive_folder_id`,
+`email_subject_contains`, `granola_speaker`.
+
+**Confidence model:** rules are user-confirmed by definition (they
+moved the file, so the path is correct). When a rule matches,
+`file_document` sets `confidence = 1.0` and routes directly. No
+classifier needed. The only way to "untrain" a rule is to manually
+delete it from `filing_rules` (future: a UI for this lives in
+Phase F4 v4 if rule churn becomes a problem).
+
+**Trade-off:** False positives if the user moves a file for an
+unrelated reason. v1 accepts this; v3.x can add a "delete this
+rule" UI surface or a `hit_count` decay if a rule keeps getting
+overruled.
+
+---
+
+## ADR-028 — Universal sync watcher config + daily cron auto-sync
+
+**Date:** 2026-05-07 · Phase F4 v2
+**Decision:** Per-(org, Composio-connection) sync configurations live
+in a `sync_configs` table. Each row carries `mode` (off/manual/auto),
+`source_filter` JSONB, `last_synced_at`, `last_sync_summary`. A
+`/settings/sync` UI page lets the user toggle mode per connection.
+A daily Vercel cron at `/api/cron/auto-sync` walks all `mode='auto'`
+rows and calls toolkit-specific adapters (Gmail shipped first;
+Calendar / Drive / Notion / etc. have stub adapter slots that just
+return "not yet wired").
+
+**Why per-connection (not per-toolkit) configs:** users have multiple
+accounts per toolkit (6 Gmails, 6 Calendars, 4 Drives in Keegan's
+case). Routing decisions are per-account, not per-service. Per-row
+mode + filter lets the user enable auto-sync for ViaOps Gmail
+(high-signal) but not Personal Gmail (low-signal).
+
+**Why daily cron, not real-time webhooks:** Composio's webhook/trigger
+surface is reportedly available but adds inbound HTTP plumbing on
+Vercel side. Daily polling is sufficient for the current "knowledge
+mirror" use case and Hobby-tier compatible. Real-time triggers can
+be added per-toolkit if a workflow demands it.
+
+**Why a `sync-watchers` library, not toolkit-coupled cron handlers:**
+Each adapter is a small function that, given a `SyncConfig`,
+returns `{fetched, filed, filed_to_inbox, errors, cursor}`. The
+cron handler is just a fan-out. Adding a new toolkit = adding one
+file in `src/lib/sync-watchers/` + one case in the dispatch switch.
+This stays generalizable as more toolkits are needed.
+
+**Adapters DO NOT classify** — they call `file_document` with no
+target_path, which routes to Inbox/. The classification work
+happens (a) via `filing_rules` short-circuits (ADR-029) or (b) v2.x
+when we add a Haiku-based pre-classifier inside the cron loop.
+
+**Trade-off:** Polling has up-to-24h latency between an external
+event (e.g. new email) and the wiki entry. Real-time clients can
+still see the email immediately by going through Composio directly;
+the brain catches up next cron cycle. For knowledge-graph use cases
+this is fine; for time-sensitive triggers it isn't (and we'd add
+webhooks for those specifically).
+
+---
+
+## ADR-027 — AI Filing Engine: caller-as-classifier
+
+**Date:** 2026-05-07 · Phase F4 v1
+**Decision:** The `file_document` tool's caller (a Claude agent or a
+sync-watcher adapter) is responsible for the routing decision.
+`file_document` is the writer + safety net, not the classifier.
+
+The tool accepts:
+- `target_path` (the caller's guess)
+- `confidence` (0–1 self-assessment)
+- `reasoning` (audit trail)
+
+If `confidence ≥ 0.7` AND target_path is provided → write at the path.
+Otherwise → route to `Inbox/<safe-title>.md` for user review,
+stamping `metadata.frontmatter.filed_to_inbox = true` + the rejected
+suggestion so Phase F4 v3 reconciliation can learn from where the
+user later moves the file.
+
+**Why caller-as-classifier (not a server-side classifier):**
+
+1. **The Claude agent already has the routing context.** When chat
+   processes "file this email," the agent has the operating
+   instructions (Profile.md routing rules), the active state (which
+   client/space matches), AND the document content in its context.
+   Asking it to also produce `target_path` is one extra reasoning
+   step, no extra round-trip.
+2. **Adapters can pass nothing and route to Inbox by default.** Cron
+   sync-watchers don't have an LLM in their loop. They call
+   `file_document` with no `target_path` → Inbox/ → user (or future
+   `filing_rules`) handles it.
+3. **Server-side classification adds cost without changing the
+   shape.** Every server-side classifier call is a Haiku/Sonnet
+   round-trip. The chat-driven path doesn't need it. The cron-driven
+   path can ADD it later as v2.x without changing the tool surface.
+4. **Auditability.** The caller's `reasoning` lands in the activity
+   log alongside its `target_path` choice. We can debug filing
+   decisions without spelunking through internal classifier prompts.
+
+**Inbox-routed page metadata stamps** (used by Phase F4 v3
+reconciliation):
+- `filed_to_inbox: true`
+- `suggested_path: <what the caller wanted>`
+- `confidence: <0–1>`
+- `filing_reason: <caller's reasoning>`
+
+**Trade-off:** chat-driven filing depends on the AI client being
+quality-trained on Profile.md routing rules. Mitigation: routing
+rules are explicit + tabular in Profile.md; both Claude and future
+GPT/Gemini clients should follow them with reasonable accuracy. The
+Inbox safety net catches mistakes; F4 v3 learns from corrections.
+
+---
+
 ## ADR-026 — Product thesis: brain-as-connectivity-layer, not chat-as-product
 
 **Date:** 2026-05-07

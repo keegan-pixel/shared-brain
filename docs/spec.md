@@ -32,16 +32,22 @@ related: "[[AI-Native PM Platform Vision]]"
 | 2 — Vault Sync Agent | ✅ Complete | 2026-04-30 |
 | 3 — Kanban UI | ✅ Complete | 2026-04-30 |
 | 4a — Connection Graph Foundations | ✅ Complete | 2026-04-30 |
-| 4b — Background AI edges (keyword overlap, AI-suggested) | ⏳ Not started | — |
+| 4b — Background AI edges (v1: keyword_overlap + co_mention) | ✅ v1 Complete | 2026-05-07 |
 | 5a — Activity Feed UI | ✅ Complete | 2026-04-30 |
 | File storage + extraction + previews (F1+F2+F3) | ✅ Complete | 2026-04-30 → 2026-05-01 |
 | 5b — Built-in Claude chat panel | ✅ Complete | 2026-05-01 |
 | 5c — Composio integration | ✅ Complete | 2026-05-01 |
 | ~~5d — Live artifacts~~ | ❌ Dropped (ADR-022) | 2026-05-01 |
-| 6 — Agent Operating Instructions | ⏳ Next up | — |
-| F4 — Bidirectional ingestion (incl. F4d local-mirror pull-down) | ⏳ Queued | — |
-| 7 — Mobile via Claude (Claude.ai mobile + remote MCP, no native) | ⏳ Queued | — |
-| 8 — Multi-user readiness | 🅿️ Parked | — |
+| 6 — Agent Operating Instructions | ✅ Complete | 2026-05-01 |
+| F4d — Vault pull-down | ✅ Complete | 2026-05-07 |
+| F4 v1 — AI Filing Engine | ✅ Complete | 2026-05-07 |
+| F4 v2 — Sync config UI + cron auto-sync (Gmail) | ✅ Complete | 2026-05-07 |
+| F4 v3 — Active-learning reconciliation | ✅ Complete | 2026-05-07 |
+| ~~F4c — Manual upload UI~~ | ❌ Dropped (ADR-022) | 2026-05-07 |
+| F4a/b — additional ingestion adapters | ⏳ Queued | — |
+| **MCP Reliability Hardening** (P0 per ADR-026) | ⏳ Next up | — |
+| 7 — Mobile via Claude (Claude.ai mobile + remote MCP) | ⏳ Queued (after hardening) | — |
+| 8 — Multi-user readiness | ⏳ Queued (priority increased per ADR-026) | — |
 
 ---
 
@@ -314,38 +320,65 @@ All views use shadcn/ui components. Dark mode supported from day one.
 
 ---
 
-### Phase 6 — Agent Operating Instructions (next)
+### Phase 6 — Agent Operating Instructions — ✅ Shipped 2026-05-01
 **Goal:** Every Claude agent that connects to Shared Brain via MCP reads a standardized operating-instructions block at session start and is given tools to record what it did.
 
-- [ ] User Profile wiki page (`Profile.md`) — preferences, brand context, work style, common workflows
-- [ ] MCP tool `get_operating_instructions` — returns merged user profile + standing instructions
-- [ ] MCP tool `record_session_summary({ summary, project?, related_items? })` — appends to activity feed + creates session-note wiki page
-- [ ] CLI install script `shared-brain --install-skill claude` — drops a skill file into Claude Desktop / Code / Cowork pointing at the live operating-instructions endpoint
-- [ ] **Exit criterion:** Activity feed shows session-summary entries auto-landing as Claude agents finish work, without the user remembering to ask.
+- [x] User Profile wiki page (`Profile.md`) — preferences, brand context, work style, common workflows; auto-derived Active State + Key People sections
+- [x] MCP tool `get_operating_instructions` — returns merged user profile + standing instructions
+- [x] MCP tool `record_session_summary({ summary, project?, related_items? })` — appends to activity feed + creates session-note wiki page
+- [x] MCP tool `get_active_state` — derived state-of-world replacing the static "Active State" section (ADR shipped, see Build Log)
+- [x] CLI install script `npm run install-skill claude` — drops `~/CLAUDE.md` pointing at the live operating-instructions endpoint
+- [x] CLI script `npm run install-daemon` — one-command launchd vault sync setup
+- [x] CLI script `npm run rotate-key` — productized MCP_API_KEY rotation that auto-updates `.env.local`, Claude Desktop config, and daemon plist
+- [x] **Exit criterion met:** Activity feed shows session-summary entries auto-landing as Claude agents finish work, without the user remembering to ask.
 
 See ADR-023 for the architecture rationale (three-layer drift defense: standing instructions + auto-capture + drift detection).
 
 ---
 
-### Phase F4 — Bidirectional Ingestion (after Phase 6)
+### Phase F4 — Bidirectional Ingestion — ✅ v1/v2/v3/d Shipped 2026-05-07 · F4a/b queued
 **Goal:** Expand the brain's input surface (auto-pull from external sources) AND keep the local Obsidian vault as a complete mirror of platform-originated entries.
 
-- [ ] **F4a:** Composio Drive watcher — auto-pull new files from connected Drives into the brain
-- [ ] **F4b:** Gmail attachment auto-ingest — important emails with attachments → wiki entries
-- [ ] **F4c:** Manual upload UI in the platform
-- [ ] **F4d (NEW per ADR-024):** Vault pull-down — local agent gets a sync feed and materializes platform-created entries as markdown into the vault, so Obsidian stays a complete local mirror
-- [ ] **Exit criterion:** Working from any surface (chat, mobile, another user) creates entries that propagate to your local Obsidian vault automatically.
+- [x] **F4d:** Vault pull-down (ADR-030) — `/api/sync/pull?since=...` endpoint serves platform-only wiki pages (no `vault_sync_log`, no `blob_url`, OR `metadata.platform_origin = 'file_document'`); agent's `pullDown()` materializes them locally; round-trip idempotent via SHA1 hash unification + alphabetical key sort (ADR-031).
+- [x] **F4 v1:** AI Filing Engine (ADR-027) — `file_document` MCP + chat tool. Caller-as-classifier; <0.7 confidence routes to `Inbox/`; Inbox-routed pages stamp `filed_to_inbox: true` + `suggested_path` for v3 to learn from.
+- [x] **F4 v2:** Sync config UI + cron auto-sync (ADR-028) — `sync_configs` table with one row per (org, Composio connection); `/settings/sync` UI for off/manual/auto toggle; daily Vercel cron at `/api/cron/auto-sync` walks active configs and pulls new items via toolkit adapters. Gmail adapter shipped; other toolkits accept the toggle but adapters land per-toolkit follow-ups.
+- [x] **F4 v3:** Active-learning reconciliation (ADR-029) — when an Inbox-routed file gets moved, server detects the move, consolidates the wiki row, and writes a `filing_rules` entry. Future calls to `file_document` short-circuit Inbox for matched patterns.
+- [ ] **F4a:** Composio Drive watcher adapter — same pattern as Gmail
+- [ ] **F4b:** Gmail attachment auto-ingest (separate from email body filing — pulls + extracts attachments)
+- [x] ~~**F4c:** Manual upload UI~~ — dropped (ADR-022, daemon already covers it; mobile case folded into `file_document`)
+- [x] **Exit criterion met:** Working from any surface (chat, mobile, another user) creates entries that propagate to local Obsidian; AI-filing routes to user-controlled folders; reconciliation loop learns from corrections.
 
 ---
 
-### Phase 7 — Mobile via Claude (after F4)
+### Phase 4b — Background AI Edges — ✅ v1 Shipped 2026-05-07 · ai_suggested deferred to v2
+**Goal:** Connection graph keeps getting smarter on a cron schedule.
+
+- [x] Daily cron at `/api/cron/connections` (06:00 UTC) — keyword_overlap + co_mention edges generated across all entities; idempotent re-runs; per-entity caps to keep graph readable.
+- [ ] **v2:** `ai_suggested` edges (LLM-driven relationship labeling beyond pure embedding similarity) — needs cost analysis before enabling.
+- [ ] **v2:** co_mention nickname/alias resolution — current substring matcher requires full title match.
+- [ ] **v2:** incremental cron pass (only re-scan recently-modified entities + periodic full rescan) — current full-graph scan will hit timeout at ~10k entities.
+- [x] **Exit criterion met:** Connection panel surfaces non-obvious related entries that weren't explicitly linked. 2,346 keyword_overlap edges generated on first run for ViaOps org.
+
+---
+
+### MCP Reliability Hardening (PRE-PHASE-7, P0 per ADR-026)
+**Goal:** External MCP connectivity is rock-solid because it IS the product. Disconnect = broken product.
+
+- [ ] **Native remote MCP migration** — if Claude Desktop now supports HTTPS MCP without `mcp-remote` stdio bridge, switch to that and eliminate the dominant failure mode
+- [ ] **`npm run reconnect-mcp`** diagnostic CLI — runs the steps from Runbook's "MCP disconnected" decision tree automatically and reports which step failed
+- [ ] **`/status` page** + server-side MCP request logging — observability for handshake failures + per-deploy uptime
+- [ ] **Exit criterion:** A user reporting "MCP disconnected" can resolve it in <60 seconds via one command, OR we can see in our own logs why it broke before they tell us.
+
+---
+
+### Phase 7 — Mobile via Claude (after MCP Reliability Hardening)
 **Goal:** Claude.ai mobile + Shared Brain remote MCP becomes the on-the-go interface. No native app, no PWA.
 
 - [ ] Workflow tool `compose_invoice({ client, items?, send_to? })` — composes pulling client + applying template + emailing
 - [ ] Workflow tool `compose_proposal({ client, template_name? })`
 - [ ] Workflow tool `log_thought({ text, project? })` — quick capture
 - [ ] Workflow tool `find_last_context({ person_or_company })` — searches emails + meeting notes + brain
-- [ ] Workflow tool `file_document({ source, hint? })` — accepts a file (upload, URL, or email-attachment ref), runs the existing F1/F2/F3 extraction pipeline, uses operating instructions + active state to auto-classify the right vault location, applies tags + frontmatter. Inherits the dropped F4c capability and adds AI-driven filing. Mobile-first.
+- [x] ~~Workflow tool `file_document`~~ — already shipped in F4 v1
 - [ ] User profile (Phase 6) feeds workflow defaults — invoice template style, tone, brand
 - [ ] Workflow tools return brief confirmations + entity links (mobile-friendly response shape)
 - [ ] **Exit criterion:** "Generate a new XPFlow invoice and send it to Mark, Deanna, Matt" from phone → one prompt → one MCP roundtrip → done.
@@ -354,17 +387,8 @@ See ADR-025 for why no native app.
 
 ---
 
-### Phase 4b — Background AI Edges (parallel; can ship anytime)
-**Goal:** Connection graph keeps getting smarter on a cron schedule.
-
-- [ ] Cron job — keyword overlap edge extraction
-- [ ] Cron job — AI-suggested connections (model proposes related entities)
-- [ ] **Exit criterion:** Connection panel surfaces non-obvious related entries that weren't explicitly linked.
-
----
-
-### Phase 8 — Multi-user readiness (PARKED)
-Triggered when there's a second real user or company onboarding. Scope: per-user Clerk accounts, per-user Composio consumer keys, org-scoped data isolation, per-user operating instructions.
+### Phase 8 — Multi-user readiness (priority increased per ADR-026)
+Multi-user is the proving ground for the connectivity thesis at scale. Scope: per-user Clerk accounts, per-user Composio consumer keys, org-scoped data isolation, per-user operating instructions, productized MCP onboarding (one-command setup for any new user).
 
 ---
 

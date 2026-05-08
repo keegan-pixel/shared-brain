@@ -217,6 +217,99 @@ your "For You" connections. See ADR-020 for the full reasoning.
 
 ---
 
+## AI Filing Engine + sync configs (Phase F4 v1/v2/v3)
+
+The platform pulls in external content (today: Gmail; later: Drive,
+Granola, Calendar, etc.) and AI-files it into the right vault
+location. Three layers:
+
+- **v1 — `file_document` tool** — the writer + safety net. Caller
+  (Claude agent or sync-watcher adapter) provides `target_path` +
+  `confidence`; <0.7 routes to `Inbox/`. ADR-027.
+- **v2 — sync configs + daily cron** — `/settings/sync` UI lets the
+  user toggle off/manual/auto per Composio connection. Daily cron at
+  `/api/cron/auto-sync` walks `mode='auto'` rows and pulls new items.
+  Gmail adapter shipped; other toolkits accept the toggle but their
+  adapters are stubbed. ADR-028.
+- **v3 — active-learning reconciliation** — when user moves an
+  Inbox-filed file to a real folder, the system records a
+  `filing_rules` row keyed by the source pattern (currently
+  `gmail_from`). Future calls bypass Inbox for matched patterns.
+  ADR-029.
+
+### Enabling auto-sync for a Composio account
+1. Open `https://shared-brain-ecru.vercel.app/settings/sync`
+2. Find the connection (e.g. "Gmail · ViaOps (keegan@viaops.co)")
+3. Click `auto`. The next daily cron run (07:00 UTC) picks it up.
+
+To trigger immediately for testing:
+```bash
+KEY=$(grep '^MCP_API_KEY=' /path/to/.env.local | cut -d= -f2 | tr -d '"')
+curl -H "Authorization: Bearer $KEY" \
+  https://shared-brain-ecru.vercel.app/api/cron/auto-sync
+```
+
+The response shows per-config `{fetched, filed, filed_to_inbox,
+errors}` summaries. `last_synced_at` advances on success.
+
+### Adding a new toolkit adapter
+1. Create `src/lib/sync-watchers/<toolkit>.ts` — function takes
+   `{ orgId, config }` and returns
+   `{ toolkit, connection_id, fetched, filed, filed_to_inbox, errors, cursor }`.
+2. Use `executeComposioTool` (in `composio-mcp-call.ts`) to fetch
+   new items via `COMPOSIO_MULTI_EXECUTE_TOOL` with the
+   connection's `account` parameter.
+3. For each item: build `title` + `content` (markdown text — extract
+   from binary if needed) + `source` (origin descriptor) + a
+   `frontmatter` dict that includes any `gmail_from`-equivalent
+   match-kind hints (`meeting_attendee`, `drive_folder_id`, etc.) so
+   filing_rules can learn from moves.
+4. Call `fileDocument()` per item. Don't pre-classify in the
+   adapter; `applyFilingRules` already handles known-pattern
+   short-circuits.
+5. Add a `case '<toolkit>':` in `/api/cron/auto-sync/route.ts`
+   dispatch.
+6. Update the UI's `SUPPORTED_TOOLKITS` set in
+   `src/app/(app)/settings/sync/client.tsx` so the "not yet wired"
+   badge disappears.
+
+### Filing rules — list / inspect / delete
+
+```sql
+-- list all rules for the org
+SELECT match_kind, match_value, target_path, hit_count, last_matched_at
+FROM filing_rules WHERE org_id = '<id>'
+ORDER BY hit_count DESC;
+
+-- delete a rule that's misfiring
+DELETE FROM filing_rules WHERE id = '<id>';
+```
+
+A future v4 might add a UI for this, but for now Drizzle Studio
+(`npm run db:studio`) is the management surface.
+
+### Debugging filing decisions
+Every `file_document` call writes an activity entry with action
+`file_document` or `file_document_inbox`. The metadata includes the
+caller's `suggestedPath`, `confidence`, `reasoning`, and any
+`learned_rule` that matched. To trace why a doc landed where it did,
+filter Activity by Action = `file_document*` and inspect.
+
+### Common failures
+- **"Composio call failed: ..." in cron summary** — the consumer
+  API key is wrong or expired. Check `COMPOSIO_API_KEY` (or
+  `COMPOSIO_CONSUMER_API_KEY`) in Vercel env vars.
+- **All items routing to Inbox even with rules in place** — the
+  `frontmatter.email_from` (or other match-kind value) the caller
+  is passing doesn't exactly match the rule's `match_value`. Check
+  case + whitespace.
+- **Move from Inbox not learning a rule** — usually the contentHash
+  doesn't match between the original write and the moved push.
+  Verify ADR-031's invariants hold (SHA1, alphabetical key sort) in
+  any new code path that hashes a body.
+
+---
+
 ## File storage + previews (F1 / F2 / F3)
 
 ### Where files live
@@ -446,19 +539,104 @@ platform.openai.com → API keys → revoke old → create new → update
 
 ## Debugging
 
-### Claude Desktop won't connect to shared-brain
-1. Tail the logs:
-   ```bash
-   tail -n 100 ~/Library/Logs/Claude/mcp*.log
-   ```
-2. Most common causes:
-   - **`401 Unauthorized`** — `MCP_API_KEY` mismatch. Check `.env.local` matches
-     Vercel env. Check the Authorization header format in `claude_desktop_config.json`
-     is `Bearer <key>` with a space.
-   - **`500 MCP_API_KEY is not configured`** — Vercel env var missing. Add it
-     and redeploy.
-   - **Tools list empty** — restart Claude Desktop. mcp-remote caches the
-     tool list per session.
+### MCP "Server disconnected" — decision tree
+
+When any Claude client (Desktop / Code / Cowork) shows
+`MCP shared-brain: Server disconnected`, work the steps in order. Do
+not skip — each step rules out a class of failure cheaply before
+moving to the next.
+
+This is a **P0 customer-facing failure mode** per ADR-026 (the brain
++ MCP IS the product). Treat tickets like a 5xx on a SaaS app.
+
+#### Step 1 — Is the platform endpoint reachable?
+```bash
+KEY=$(grep '^MCP_API_KEY=' /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain/.env.local | cut -d= -f2 | tr -d '"')
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer $KEY" \
+  https://shared-brain-ecru.vercel.app/api/operating-instructions
+```
+
+- `200` → server is healthy + auth is valid. The problem is client-side.
+  Skip to step 3.
+- `401` → key drift. The `MCP_API_KEY` in `.env.local` doesn't match
+  Vercel's. Run `npm run rotate-key` to regenerate + sync everywhere
+  (or manually update Vercel env var to match `.env.local`, then
+  redeploy).
+- `404` / `5xx` → Vercel issue. Check the latest deploy at
+  vercel.com/dashboard → shared-brain → Deployments. If a recent
+  deploy is stuck/failed, redeploy from the previous good commit.
+
+#### Step 2 — Is the MCP handshake working?
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"diagnostic","version":"1.0"}}}' \
+  https://shared-brain-ecru.vercel.app/api/mcp
+```
+
+Expected: `event: message\ndata: {"result":{"protocolVersion":...}}`.
+Anything else → server broken even though step 1 passed; capture
+output and dig.
+
+#### Step 3 — Is `mcp-remote` running and reachable on the client?
+Claude Desktop spawns `mcp-remote` as a stdio subprocess. When this
+proxy crashes/hangs, "disconnected" shows even though server +
+client are both healthy.
+
+```bash
+# Is mcp-remote alive?
+ps aux | grep "mcp-remote" | grep -v grep
+# Look at Claude Desktop's MCP logs — server-name shows up here
+tail -n 200 ~/Library/Logs/Claude/mcp-server-shared-brain.log
+```
+
+Common patterns in the log:
+- `MaxListenersExceeded` / silently exits → process leak between
+  restarts. Fix: full Cmd-Q (NOT just close window) + reopen Claude
+  Desktop. Sometimes needs two restarts because the first doesn't
+  fully kill the lingering subprocess.
+- `Authorization: ${AUTH_HEADER}` literal (no substitution) → env
+  expansion broke. Re-run `npm run rotate-key` to regenerate the
+  config with a fresh AUTH_HEADER value.
+- `connect ECONNREFUSED` → DNS / network blip; usually resolves on
+  retry.
+
+#### Step 4 — Force a clean reconnect
+```bash
+# 1. Kill any lingering mcp-remote processes
+pkill -f "mcp-remote" 2>/dev/null
+# 2. Verify the config still has a valid Bearer key
+python3 -c "import json; print(json.load(open('/Users/keeganlamar/Library/Application Support/Claude/claude_desktop_config.json'))['mcpServers']['shared-brain']['env']['AUTH_HEADER'][:15] + '...')"
+# 3. Quit Claude Desktop completely (Cmd-Q)
+# 4. Reopen Claude Desktop
+```
+
+If still disconnected after this → escalate. Capture
+`~/Library/Logs/Claude/mcp-server-shared-brain.log` + the curl output
+from steps 1+2.
+
+#### Step 5 — Other clients (Claude Code / Cowork)
+- **Code:** `claude mcp remove shared-brain && claude mcp add shared-brain "https://shared-brain-ecru.vercel.app/api/mcp" --header "Authorization: Bearer $KEY"`
+- **Cowork:** App → Settings → MCP servers → Shared Brain → toggle off/on.
+
+#### When you can't get it back
+If steps 1–5 don't bring MCP back, the user can still:
+- Use the in-platform chat panel at shared-brain-ecru.vercel.app/
+- Continue working in their vault — daemon keeps syncing
+- Use Composio MCP directly (their own AI client probably has
+  Composio set up independently)
+
+The brain's data is never lost when MCP is disconnected. Worst case
+is a temporary loss of "ask my AI to act on the brain" while we
+diagnose.
+
+### Other connection issues
+- **`Tools list empty` after a successful connect** — restart
+  Claude Desktop. mcp-remote caches the tool list per session and
+  doesn't re-fetch on schema changes.
 
 ### Vercel build fails with "DATABASE_URL is not set"
 This shouldn't happen anymore (lazy-init Proxy in `src/lib/db/client.ts`,
