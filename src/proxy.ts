@@ -15,8 +15,12 @@ const isPublicRoute = createRouteMatcher([
   // MCP Reliability Hardening: public health endpoint (read-only, no PII).
   "/api/status",
   // Phase 8 v1: OAuth discovery + token endpoints (public per RFC 8414/6749).
-  // /oauth/authorize is intentionally NOT public — it requires a Clerk session.
-  "/api/.well-known/oauth-authorization-server",
+  // /authorize is intentionally NOT public — it requires a Clerk session.
+  // The .well-known/* paths rewrite to /api/oauth-discovery/* (Next can't
+  // route directories starting with `.`).
+  "/api/oauth-discovery/(.*)",
+  "/.well-known/oauth-authorization-server(.*)",
+  "/.well-known/oauth-protected-resource(.*)",
   "/api/oauth/token",
 ]);
 

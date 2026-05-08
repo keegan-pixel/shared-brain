@@ -7,8 +7,9 @@
  * server action that issues an auth code and 302s to the client's
  * redirect_uri with `code` + `state`.
  *
- * Path: /oauth/authorize (NOT /api/oauth/authorize) so Clerk's
- * native sign-in redirect works.
+ * Path: /authorize (top-level, NOT under /api). claude.ai's Custom
+ * Connectors uses a hardcoded `/authorize` path for the AS, regardless
+ * of what `authorization_endpoint` says in the discovery doc.
  */
 
 import { redirect } from "next/navigation";

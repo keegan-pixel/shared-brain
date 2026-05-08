@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
   const metadata = {
     issuer: origin,
-    authorization_endpoint: `${origin}/oauth/authorize`,
+    authorization_endpoint: `${origin}/authorize`,
     token_endpoint: `${origin}/api/oauth/token`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
