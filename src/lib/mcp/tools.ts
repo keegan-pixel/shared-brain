@@ -240,21 +240,83 @@ export function registerTools(server: McpServer, ctx: McpContext) {
       const isBinary = !!row.blobUrl;
       const fullText = isBinary ? row.extractedText ?? "" : row.content;
       const truncated = fullText.length > cap;
+
+      // Tappable URLs for the mobile use case (find → view / save / forward).
+      // All routes are Clerk-auth'd, so signed-in users can tap directly.
+      // The blob URL itself is private and never returned to the caller.
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
+      const view_url = isBinary
+        ? `${base}/api/files/${row.id}`
+        : `${base}/wiki/${row.id}`;
+      const download_url = isBinary ? `${base}/api/files/${row.id}?download=1` : null;
+      const preview_url = isBinary ? `${base}/api/files/${row.id}/preview` : null;
+
       return ok({
         found: true,
         id: row.id,
         title: row.title,
         kind: isBinary ? "binary" : "prose",
-        blob_url: row.blobUrl,
         word_count: row.extractedWordCount ?? null,
         updated_at: row.updatedAt,
         content: truncated ? fullText.slice(0, cap) : fullText,
         truncated,
         total_chars: fullText.length,
+        // Surface these to the user when they want to view, save, or forward
+        // the doc. On mobile, tapping view_url opens it in their browser
+        // (signed in via Clerk session); download_url forces an attachment.
+        view_url,
+        download_url,
+        preview_url,
         hint:
           isBinary && !row.extractedText
-            ? "Binary file with no extracted text yet — open via blob_url or wait for the F2 extraction backfill to catch it."
+            ? "Binary file with no extracted text yet — open via view_url or wait for the F2 extraction backfill to catch it."
             : undefined,
+      });
+    },
+  );
+
+  server.tool(
+    "get_document_url",
+    "Cheap variant of `get_document` that returns ONLY the URL set (no content). Use when the caller wants to view, save, or forward a doc without you reading it (e.g. \"send me the brand doc\" — no need to spend tokens on the body).",
+    {
+      wiki_page_id: z.string().uuid().optional(),
+      title_match: z.string().min(1).max(200).optional(),
+    },
+    async ({ wiki_page_id, title_match }) => {
+      if (!wiki_page_id && !title_match) {
+        return ok({ error: "Provide either wiki_page_id or title_match." });
+      }
+      let row: typeof wikiPages.$inferSelect | undefined;
+      if (wiki_page_id) {
+        [row] = await db
+          .select()
+          .from(wikiPages)
+          .where(and(eq(wikiPages.orgId, ctx.orgId), eq(wikiPages.id, wiki_page_id)))
+          .limit(1);
+      } else {
+        [row] = await db
+          .select()
+          .from(wikiPages)
+          .where(
+            and(
+              eq(wikiPages.orgId, ctx.orgId),
+              ilike(wikiPages.title, `%${title_match}%`),
+            ),
+          )
+          .orderBy(desc(wikiPages.updatedAt))
+          .limit(1);
+      }
+      if (!row) return ok({ found: false });
+      const isBinary = !!row.blobUrl;
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
+      return ok({
+        found: true,
+        id: row.id,
+        title: row.title,
+        kind: isBinary ? "binary" : "prose",
+        view_url: isBinary ? `${base}/api/files/${row.id}` : `${base}/wiki/${row.id}`,
+        download_url: isBinary ? `${base}/api/files/${row.id}?download=1` : null,
+        preview_url: isBinary ? `${base}/api/files/${row.id}/preview` : null,
       });
     },
   );

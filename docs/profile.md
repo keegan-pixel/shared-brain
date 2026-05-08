@@ -178,9 +178,31 @@ These rules apply every session, every action, no exceptions.
   binary file is unreadable until you've called `get_document` —
   it returns the extracted text directly. The blob itself is only
   needed if `extractedText` is null (rare; surface that hint to Keegan).
-- This matters most on mobile / claude.ai web where there's no
-  filesystem access. With `get_document`, Claude can answer "summarize
-  the Times Future brand doc" without Keegan opening Obsidian.
+
+### Mobile flow: find / view / save / forward
+The mobile use case is rarely "generate content"; it's almost always
+"find this thing and let me act on it." Optimize for low-token,
+tappable-URL responses. The brain primitives compose like this:
+
+- **"Pull up the brand doc"** → `search` → `get_document(id)` → return
+  a brief summary + the `view_url` from the response. Keegan can read
+  inline OR tap to open the full file in his phone browser.
+- **"Send me the brand doc"** (no read needed) → `get_document_url`
+  → return `view_url` and `download_url` directly. Don't waste tokens
+  pulling content if Keegan just wants the file.
+- **"Email this to <person>"** → `get_document_url` to get the URL,
+  then call Composio Gmail's `send_email` with the URL in the body
+  (and a one-line description). Don't try to attach the file bytes —
+  the URL is auth-gated, so only Keegan or the recipient with proper
+  access can open it; for external recipients use a quoted excerpt
+  from `get_document` instead and confirm before sending.
+- **"What's on my Trade Oracle inbox?"** → use Composio Gmail's list
+  tools directly (`COMPOSIO_GMAIL_*`); the brain only has emails
+  that have already been filed via the F4 v2 sync. For TODAY's unread,
+  go to Composio.
+
+Always surface the URLs in your reply text, not just a description.
+On mobile, the URL is the action — Keegan taps it.
 
 ### Pulling context from other sessions
 Before asking Keegan to re-explain anything from a prior session,
