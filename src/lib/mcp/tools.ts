@@ -190,6 +190,75 @@ export function registerTools(server: McpServer, ctx: McpContext) {
     },
   );
 
+  server.tool(
+    "get_document",
+    "Read the full text of a wiki page or document. Returns prose markdown for `.md` pages and the extracted body text for binary files (.docx / .pdf / .xlsx — extraction shipped in F2). Use AFTER `search` or `get_wiki_pages` finds a candidate, when the caller asks to actually read or summarize the doc.",
+    {
+      wiki_page_id: z.string().uuid().optional(),
+      title_match: z
+        .string()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+          "Substring match on title — use only if you don't have an id. Picks the most-recently-updated match.",
+        ),
+      max_chars: z
+        .number()
+        .int()
+        .min(1000)
+        .max(200_000)
+        .optional()
+        .describe("Cap for the returned content. Defaults to 100,000 chars."),
+    },
+    async ({ wiki_page_id, title_match, max_chars }) => {
+      if (!wiki_page_id && !title_match) {
+        return ok({ error: "Provide either wiki_page_id or title_match." });
+      }
+      const cap = max_chars ?? 100_000;
+      let row: typeof wikiPages.$inferSelect | undefined;
+      if (wiki_page_id) {
+        [row] = await db
+          .select()
+          .from(wikiPages)
+          .where(and(eq(wikiPages.orgId, ctx.orgId), eq(wikiPages.id, wiki_page_id)))
+          .limit(1);
+      } else {
+        [row] = await db
+          .select()
+          .from(wikiPages)
+          .where(
+            and(
+              eq(wikiPages.orgId, ctx.orgId),
+              ilike(wikiPages.title, `%${title_match}%`),
+            ),
+          )
+          .orderBy(desc(wikiPages.updatedAt))
+          .limit(1);
+      }
+      if (!row) return ok({ found: false });
+      const isBinary = !!row.blobUrl;
+      const fullText = isBinary ? row.extractedText ?? "" : row.content;
+      const truncated = fullText.length > cap;
+      return ok({
+        found: true,
+        id: row.id,
+        title: row.title,
+        kind: isBinary ? "binary" : "prose",
+        blob_url: row.blobUrl,
+        word_count: row.extractedWordCount ?? null,
+        updated_at: row.updatedAt,
+        content: truncated ? fullText.slice(0, cap) : fullText,
+        truncated,
+        total_chars: fullText.length,
+        hint:
+          isBinary && !row.extractedText
+            ? "Binary file with no extracted text yet — open via blob_url or wait for the F2 extraction backfill to catch it."
+            : undefined,
+      });
+    },
+  );
+
   // ─── WRITE ────────────────────────────────────────────────────────────
 
   server.tool(

@@ -166,6 +166,22 @@ These rules apply every session, every action, no exceptions.
 - **Rebuild the index** after any major reorg:
   `bash /Users/keeganlamar/Documents/ViaOps/Knowledge/Scripts/rebuild-vault-index.sh`
 
+### Reading documents (especially on mobile)
+- **`search` and `get_wiki_pages` return previews / titles** — they
+  don't return full document text. If Keegan asks you to read, pull,
+  summarize, or analyze a specific doc, that's a two-step:
+  1. `search` (or `get_wiki_pages`) to find the page
+  2. `get_document` with the resulting `id` (or a `title_match`) to
+     get the full text
+- **Binary files (.docx / .pdf / .xlsx) HAVE full extracted text.**
+  F2 extracted ~150K words across 95 binary files. Don't claim a
+  binary file is unreadable until you've called `get_document` —
+  it returns the extracted text directly. The blob itself is only
+  needed if `extractedText` is null (rare; surface that hint to Keegan).
+- This matters most on mobile / claude.ai web where there's no
+  filesystem access. With `get_document`, Claude can answer "summarize
+  the Times Future brand doc" without Keegan opening Obsidian.
+
 ### Pulling context from other sessions
 Before asking Keegan to re-explain anything from a prior session,
 **check session history**:
