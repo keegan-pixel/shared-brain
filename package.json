@@ -15,6 +15,7 @@
     "install-skill": "tsx scripts/install-skill.ts",
     "install-daemon": "tsx scripts/install-daemon.ts",
     "rotate-key": "tsx scripts/rotate-key.ts",
+    "reconnect-mcp": "tsx scripts/reconnect-mcp.ts",
     "backfill:activity-spaces": "tsx scripts/backfill-activity-spaces.ts",
     "dedupe:activity": "tsx scripts/dedupe-activity.ts"
   },

@@ -539,15 +539,29 @@ platform.openai.com → API keys → revoke old → create new → update
 
 ## Debugging
 
-### MCP "Server disconnected" — decision tree
+### MCP "Server disconnected" — fast path
 
 When any Claude client (Desktop / Code / Cowork) shows
-`MCP shared-brain: Server disconnected`, work the steps in order. Do
-not skip — each step rules out a class of failure cheaply before
-moving to the next.
+`MCP shared-brain: Server disconnected`, **first run:**
+
+```bash
+cd /Users/keeganlamar/Documents/ViaOps/Projects/shared-brain
+npm run reconnect-mcp -- --fix
+```
+
+The script walks the full decision tree (steps 1–4 below)
+automatically, applies safe fixes (sync Claude Desktop config to
+`.env.local`'s key if drifted, kill stale `mcp-remote` subprocesses),
+and reports what it did. After it finishes, **Cmd-Q Claude Desktop
+fully** and reopen.
+
+If `reconnect-mcp` reports an issue it can't fix, work the relevant
+step below to dig deeper.
 
 This is a **P0 customer-facing failure mode** per ADR-026 (the brain
 + MCP IS the product). Treat tickets like a 5xx on a SaaS app.
+
+### MCP "Server disconnected" — decision tree (manual)
 
 #### Step 1 — Is the platform endpoint reachable?
 ```bash
