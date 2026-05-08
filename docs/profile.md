@@ -214,6 +214,38 @@ with a query/grep/script first. If verification confirms his read,
 fix the bug. If verification shows him a place to look he hadn't
 seen, lead with the verification, not with the explanation.
 
+### Primitives vs workflows — what belongs at the brain layer
+Before adding any new tool to the MCP surface, run this filter
+(per ADR-033):
+
+1. Is this a **primitive** (a read or write of the brain's data, or
+   an external integration like a Composio call) — or a **workflow**
+   (a sequence of steps the user could express via prompt +
+   existing primitives)?
+2. If it's a workflow, would another user with different conventions
+   need a meaningfully different version of it?
+
+If yes to (2), it's a workflow. **Push it to the AI-client layer**
+(Claude prompts, Projects, Cowork plugins, custom GPT instructions,
+the user's own saved skills). Don't bake it into the brain.
+
+Examples of correct calls:
+- `search` → primitive ✓
+- `get_active_state` → primitive ✓
+- `file_document` → primitive (writes a document to the brain at a
+  given path) ✓
+- `record_session_summary` → primitive ✓
+- `compose_invoice` → workflow ✗ (Keegan's invoice template ≠
+  another user's; user prompt + primitives composes this)
+- `find_last_context(person)` → workflow ✗ (composition of `search` +
+  `get_recent_activity` + Composio meta-tools)
+- `log_thought` → workflow ✗ (already covered by
+  `record_session_summary` and `create_item`)
+
+The rule keeps the brain a connectivity layer per ADR-026's North
+Star and keeps us out of the feature-arms-race trap that defines
+every other PM tool.
+
 ### Full doc pass at every phase boundary
 Every shipped phase requires a sweep across:
 - **Build Log** — status snapshot row + per-phase section with what

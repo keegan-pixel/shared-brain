@@ -44,7 +44,8 @@ why. Updated at the end of each phase.
 | F4 v2 — Config UI + cron auto-sync | ✅ Shipped (Gmail) | 2026-05-07 | `sync_configs` table seeded with all 20 connections from Composio Mapping. `/settings/sync` page with per-connection off/manual/auto toggle. Daily cron at `/api/cron/auto-sync` (07:00 UTC) walks `mode='auto'` rows. Gmail adapter live (fetches via `GMAIL_FETCH_EMAILS` with `after:` cursor, pipes to `file_document`). Other toolkits accept the toggle but adapters land per-toolkit follow-ups — shape is generalizable (each adapter emits `{title, content, source}` per new item). |
 | F4 v3 — Active-learning reconciliation | ✅ Shipped | 2026-05-07 | Move-detection in `/api/sync/wiki`: when an Inbox-routed `file_document` page gets pushed at a new path with matching title + contentHash, treat as a MOVE (consolidate, clear filed_to_inbox flag, learn `filing_rules` row keyed by recognizable source patterns — currently `gmail_from`; future kinds add easily). `file_document.applyFilingRules()` consults rules BEFORE confidence-based routing — match → high-confidence direct file, no Inbox. End-to-end smoke test verified the loop: file Email A → move A → rule learned → Email B auto-routes via rule. |
 | ~~F4c — Manual upload UI~~ | ❌ Dropped | 2026-05-07 | Daemon already covers vault file ingestion; mobile case better served by a Phase 7 `file_document` workflow tool that uses Claude to auto-classify + file. A dumb-pipe web upload form is strictly worse than either path. |
-| 7 — Mobile via Claude | ⏳ Queued | — | Claude.ai mobile + Shared Brain remote MCP, no native app; new workflow tools (`compose_invoice`, `find_last_context`, etc.) for one-shot mobile actions (ADR-025) |
+| MCP Reliability Hardening | ✅ Complete | 2026-05-08 | `npm run reconnect-mcp` diagnostic CLI + `mcp_request_log` table + `/status` page + `/api/status` JSON. Native Custom Connectors deferred to Phase 8 since they require OAuth which Phase 8 needs anyway (ADR-032). |
+| ~~7 — Mobile workflow tools~~ | ❌ Cancelled | 2026-05-08 | Workflow tools (`compose_invoice` etc.) violate ADR-026 + ADR-033: they're compositions of existing primitives, not primitives themselves. Mobile gap is OAuth (Phase 8), not platform-level workflows. The AI client composes workflows from primitives. |
 | 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
 
 **Live URLs:**
@@ -178,38 +179,29 @@ fall back to platform `search` + `Pipeline/_Index` lookups.
 
 ---
 
-## Phase 7 — Mobile via Claude (QUEUED, after 6 + F4)
+## Phase 7 — Cancelled (ADR-033)
 
-**Target ship:** TBD
-**Spec target:** new (post-MVP)
+The original Phase 7 was "Mobile via Claude — workflow tools." On
+inspection, every proposed tool (`compose_invoice`,
+`compose_proposal`, `log_thought`, `find_last_context`) was a
+*workflow* — a composition of existing primitives — not a primitive
+in its own right.
 
-### Why
-Mobile is a critical surface for the "brain on the go" use case
-(send proposal, generate invoice, log a thought, find last context
-with a person). Native app is overkill; Claude.ai mobile + remote MCP
-already exists. The work is making the MCP feel mobile-first.
+Per ADR-026 (the brain is connectivity, not features) and ADR-033
+(primitives-only at the brain layer), workflow tools belong in the
+AI client (Claude prompts, Projects, Cowork plugins, custom GPT
+instructions, etc.), not the brain.
 
-### What gets built
-- **Workflow tools** — composed multi-step operations exposed as
-  single MCP tools so a mobile prompt becomes a one-shot:
-  - `compose_invoice({ client, items?, send_to? })` — pulls client
-    from brain, applies invoice template, optionally emails via
-    Composio
-  - `compose_proposal({ client, template_name? })` — same pattern for
-    proposals
-  - `log_thought({ text, project? })` — quick capture
-  - `find_last_context({ person_or_company })` — search emails +
-    meeting notes + brain entries for the last interaction
-- **Operating-instructions integration** — Phase 6's user profile
-  feeds the workflow tools so they know your invoice template style,
-  your tone, your brand defaults.
-- **Mobile-friendly response shaping** — workflow tools return brief
-  confirmations + entity links rather than verbose results.
+The actual mobile gap is **connectivity, not workflows**: claude.ai
+mobile + Custom Connectors require OAuth (ADR-032), which Phase 8
+ships. Once mobile Claude can connect natively to `/api/mcp`, it
+composes its own workflows from existing primitives — `search`,
+`get_active_state`, `composio_*`, `file_document`, etc.
 
-### What does NOT get built
-- Native iOS/Android app
-- PWA wrapper around the existing web UI (kanban + wiki nav don't
-  translate well to phones; Claude is the mobile UI)
+`file_document` already shipped in F4 v1 as a true primitive. No
+other Phase 7 tools are needed.
+
+See ADR-033 for the primitive-vs-workflow filter and rationale.
 
 ---
 

@@ -20,6 +20,80 @@ Newest at the top.
 
 ---
 
+## ADR-033 — Drop Phase 7 workflow tools; primitives-only at the brain layer
+
+**Date:** 2026-05-08
+**Decision:** Cancel Phase 7 as originally specced (`compose_invoice`,
+`compose_proposal`, `log_thought`, `find_last_context` workflow
+tools). Don't ship mobile-specific or workflow-flavored tools at the
+brain layer at all. The brain stays a *primitives* layer; workflows
+belong to the AI client and the user's prompt or saved skill.
+
+**Context:** Phase 7 was originally framed as "Mobile via Claude" with
+four workflow tools to make on-the-go actions feel native. On
+inspection, every one of them was a composition of existing primitives:
+
+- `compose_invoice` = `search Pipeline/<client>` + `read template` +
+  `composio gmail_send_email` — Claude can already do this with the
+  primitives it already has.
+- `find_last_context` = `search` + `get_recent_activity` + a small
+  `composio` lookup — same.
+- `log_thought` = `record_session_summary` or `create_item` —
+  literally already a primitive.
+- `compose_proposal` = same shape as `compose_invoice`.
+
+Pre-baking these tools at the brain layer would:
+1. **Contradict ADR-026 (the North Star).** "Pick your AI platform of
+   choice — full working knowledge wherever you are" requires
+   connectivity primitives, not opinionated workflows. Workflow tools
+   are exactly what makes us "yet another PM tool with our copilot."
+2. **Pigeonhole the platform.** If we ship `compose_invoice` we'll
+   forever owe `compose_proposal`, `compose_contract`,
+   `compose_NDA`, `compose_release_notes`, etc. Feature arms race.
+3. **Hardcode one user's preferences.** Keegan's invoice template ≠
+   another user's. A platform-level workflow tool is single-tenant
+   thinking; a primitive + a Profile.md description is multi-tenant.
+4. **Crowd out actual mobile needs.** The real mobile-on-Claude gap
+   is the OAuth requirement for native Custom Connectors (ADR-032).
+   Once that lands in Phase 8, mobile Claude connects natively and
+   composes its own workflows from primitives.
+
+**Where workflows belong instead:**
+- Inside the AI client (Claude prompts, Claude Projects, Claude
+  Cowork plugins, custom GPT instructions, etc.)
+- In `Profile.md` as triggered behaviors (e.g. Section 7's "Where
+  Things Go" table — that's a primitive routing rule, not a baked
+  workflow tool)
+- As Composio meta-tool compositions the AI does on the fly
+
+**Rule for future tool decisions:**
+Before adding any new tool to the MCP surface, ask:
+1. Is this a *primitive* (read/write of the brain's data, an external
+   integration) or a *workflow* (a sequence of steps the user could
+   express via prompt + existing primitives)?
+2. If it's a workflow, would another user with different conventions
+   need a meaningfully different version of it?
+
+If yes to (2), it's a workflow — push it to the AI-client layer.
+Only ship at the brain layer if it's a true primitive.
+
+**Effect on roadmap:**
+- Phase 7 cancelled. Mobile-specific tools removed from the spec.
+- Phase 8 absorbs the only real mobile-blocker (OAuth → native
+  Custom Connectors → claude.ai mobile works first-class).
+- `file_document` (already shipped in F4 v1) remains because it's a
+  primitive (write a document into the brain at a specified path),
+  not a workflow.
+
+**Override conditions:** if a real user has tried to compose a
+specific workflow via Claude + primitives and *consistently fails*
+because Claude makes the same mistake, consider adding a
+helper-primitive that exposes the missing data shape (NOT a
+prebaked workflow). Even then, push it through the "primitive vs
+workflow" filter above.
+
+---
+
 ## ADR-032 — Defer OAuth for `/api/mcp` to Phase 8 (multi-user)
 
 **Date:** 2026-05-08

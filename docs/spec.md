@@ -45,9 +45,9 @@ related: "[[AI-Native PM Platform Vision]]"
 | F4 v3 — Active-learning reconciliation | ✅ Complete | 2026-05-07 |
 | ~~F4c — Manual upload UI~~ | ❌ Dropped (ADR-022) | 2026-05-07 |
 | F4a/b — additional ingestion adapters | ⏳ Queued | — |
-| **MCP Reliability Hardening** (P0 per ADR-026) | ⏳ Next up | — |
-| 7 — Mobile via Claude (Claude.ai mobile + remote MCP) | ⏳ Queued (after hardening) | — |
-| 8 — Multi-user readiness | ⏳ Queued (priority increased per ADR-026) | — |
+| **MCP Reliability Hardening** (P0 per ADR-026) | ✅ Complete | 2026-05-08 |
+| ~~7 — Mobile workflow tools~~ | ❌ Cancelled (ADR-033) | 2026-05-08 |
+| 8 — Multi-user readiness + OAuth (unblocks native Custom Connectors → mobile) | ⏳ Next up | — |
 
 ---
 
@@ -378,19 +378,25 @@ Rationale for deferring: multi-user (Phase 8) needs OAuth anyway — one shared 
 
 ---
 
-### Phase 7 — Mobile via Claude (after MCP Reliability Hardening)
-**Goal:** Claude.ai mobile + Shared Brain remote MCP becomes the on-the-go interface. No native app, no PWA.
+### Phase 7 — Mobile workflow tools — ❌ CANCELLED (ADR-033)
+**Original intent:** ship `compose_invoice`, `compose_proposal`,
+`log_thought`, `find_last_context` as MCP-callable workflow tools so
+mobile actions feel native.
 
-- [ ] Workflow tool `compose_invoice({ client, items?, send_to? })` — composes pulling client + applying template + emailing
-- [ ] Workflow tool `compose_proposal({ client, template_name? })`
-- [ ] Workflow tool `log_thought({ text, project? })` — quick capture
-- [ ] Workflow tool `find_last_context({ person_or_company })` — searches emails + meeting notes + brain
-- [x] ~~Workflow tool `file_document`~~ — already shipped in F4 v1
-- [ ] User profile (Phase 6) feeds workflow defaults — invoice template style, tone, brand
-- [ ] Workflow tools return brief confirmations + entity links (mobile-friendly response shape)
-- [ ] **Exit criterion:** "Generate a new XPFlow invoice and send it to Mark, Deanna, Matt" from phone → one prompt → one MCP roundtrip → done.
+**Why cancelled:** every one of these was a *workflow*, not a
+*primitive*. Brain-layer tools should be primitives only (per
+ADR-033 + ADR-026 North Star). Workflows are composed by the AI
+client from existing primitives — no need to pre-bake them.
 
-See ADR-025 for why no native app.
+**The actual mobile gap is connectivity, not workflows.**
+claude.ai mobile + Custom Connectors only support OAuth, not static
+Bearer (per ADR-032). Once Phase 8 ships OAuth, mobile Claude
+connects natively and composes its own "send the XPFlow invoice to
+Mark, Deanna, Matt" workflow from `search` + `get_active_state` +
+`composio_*` calls. No platform-level mobile tools needed.
+
+`file_document` already shipped in F4 v1 (it's a true primitive —
+write a document to the brain at a given path).
 
 ---
 
