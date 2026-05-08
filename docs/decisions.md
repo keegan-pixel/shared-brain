@@ -20,6 +20,79 @@ Newest at the top.
 
 ---
 
+## ADR-026 — Product thesis: brain-as-connectivity-layer, not chat-as-product
+
+**Date:** 2026-05-07
+**Decision:** Shared Brain is a connectivity layer for PM knowledge.
+The defensible product is the brain + its MCP interface that lets any
+AI client (Claude Desktop, Code, Cowork, mobile; future GPT, Gemini,
+etc.) connect to it from anywhere. AI is a consumer of the brain, not
+a feature *of* the brain.
+
+**Context:** Earlier framing drifted toward treating the in-platform
+chat panel as "the product" and external MCP as "power-user mode."
+This is exactly backwards and contradicts the competitive thesis.
+Every other PM tool ships "use our chat / our copilot." Our differentiator
+is the inverse: *pick your AI platform of choice — it'll have full
+working knowledge of your work no matter where you are.* That only
+holds if external MCP connectivity is rock-solid and treated as the
+primary surface.
+
+**Implications for prioritization (binding):**
+
+1. **MCP reliability is the product**, not infrastructure. A
+   disconnected MCP for a paying user = a broken product, treated
+   like a 5xx on a SaaS app. Reliability work always wins
+   prioritization fights against new in-platform features.
+2. **Multi-client MCP support is core.** The platform must work
+   identically whether the user is on Claude Desktop, Code, Cowork,
+   or any future MCP-aware client.
+3. **The in-platform chat panel is convenience, not the product.**
+   Useful but the platform should be wildly valuable with the panel
+   turned off. Don't treat it as the fallback rationale for any
+   architectural shortcut.
+4. **The kanban + activity feed + wiki + connection graph + Composio
+   routing are first-class PM infrastructure** that earn their keep
+   without any AI in the loop.
+5. **Composio routing belongs to the brain**, not individual AI
+   clients. Every connected client benefits from the same routing
+   rules; the brain is the single source of truth for "which Gmail
+   for which task."
+
+**Anti-patterns (recognize and reject):**
+
+- "Let's just add it to the in-platform chat" → first ask: should
+  this also be an MCP tool / workflow tool so external clients get
+  it?
+- "MCP disconnect is power-user friction" → no, it's a broken
+  product.
+- "Build a richer chat UI" → only if the underlying capability is
+  also reachable via MCP.
+- "AI auto-magic via the in-platform LLM" → if the same magic can't
+  happen from Claude Desktop / mobile, it shouldn't be the only
+  path.
+
+**Effect on existing roadmap:**
+
+- **Phase 7 (Mobile via Claude)** retains its workflow tools, but
+  pre-Phase-7 the next ship is **MCP Reliability Hardening** —
+  native remote MCP migration, automated `reconnect-mcp` script,
+  status page, server-side MCP request logging.
+- **Phase 8 (Multi-user)** moves up in priority because multi-user
+  is the proving ground for the connectivity thesis at scale.
+- **In-platform chat features** keep shipping but never as a
+  *replacement* for an MCP-callable equivalent.
+
+**Trade-off:** more upfront engineering on MCP plumbing and less
+flashy in-platform UX. Accepted — the thesis we just articulated
+explicitly.
+
+**Status:** This ADR governs strategic direction. Future ADRs that
+contradict it must explicitly acknowledge the override and the
+rationale.
+
+---
+
 ## ADR-025 — Mobile = Claude.ai + remote MCP, not a native app
 
 **Date:** 2026-05-01 · Phase 7 (planning)

@@ -47,9 +47,17 @@ related: "[[AI-Native PM Platform Vision]]"
 
 ## What We're Building
 
-**Shared Brain** — a cloud platform that mirrors the local Obsidian vault and exposes it to AI agents via MCP. Claude Desktop, Claude Code, and Cowork can all read from and write to it — making context persistent and queryable across all environments without rebuilding any existing workflow.
+**Shared Brain is a connectivity layer for project-management knowledge.** The defensible product is the brain itself + the MCP interface that lets any AI client connect to it from anywhere. AI is a *consumer* of the brain, not a feature *of* the brain.
 
-**The core loop:** Keegan works locally → vault changes → sync agent pushes to platform → Claude clients anywhere can query it and act on it → activity is visible in a clean UI.
+**The competitive thesis:** every other PM tool says "use our chat / our copilot / our AI." Shared Brain says *"pick your AI platform of choice — it'll have your full working knowledge no matter where you are."* The kanban + activity feed + wiki + connection graph + Composio routing are valuable PM infrastructure on their own, AI-or-not. AI integration just makes them better. The platform should be wildly valuable to a user who never opens the in-platform chat panel — because their external Claude / Cowork / mobile / future-GPT IS their chat panel.
+
+**Implications:**
+- MCP reliability is the product, not infrastructure
+- Multi-client MCP (Claude Desktop, Code, Cowork, mobile, future others) is core
+- In-platform chat is convenience, not the product
+- The brain owns Composio account routing centrally so every connected AI client benefits
+
+**The core loop:** vault and external sources feed the brain → AI clients (any platform) connect via MCP → users get full working context wherever they already work → activity flows back into the brain → all clients stay in sync.
 
 ---
 
