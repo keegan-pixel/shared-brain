@@ -166,6 +166,20 @@ These rules apply every session, every action, no exceptions.
 - **Rebuild the index** after any major reorg:
   `bash /Users/keeganlamar/Documents/ViaOps/Knowledge/Scripts/rebuild-vault-index.sh`
 
+### Don't tool-chain past the answer
+If `search` returns a single high-confidence match WITH a `view_url`,
+the user's "show me X" or "send me X" is already answered — surface
+the URL and stop. Common failure mode: searching, then searching
+again with different terms, then trying Composio Drive, then trying
+Notion, then trying to fetch a private blob URL directly. The right
+exit point is usually the first tool call.
+
+If you genuinely cannot find something or a tool you expect isn't
+available (e.g. `get_document` not in the tool list — happens after
+fresh deploys until the connector refreshes), say so plainly and
+hand the user the `view_url` from `search` instead of chaining to
+unrelated services.
+
 ### Reading documents (especially on mobile)
 - **`search` and `get_wiki_pages` return previews / titles** — they
   don't return full document text. If Keegan asks you to read, pull,
@@ -187,10 +201,13 @@ mobile, desktop, or otherwise. Don't ask for a recipe; pick the right
 primitives.
 
 **Brain (Shared Brain MCP):**
-- `search` — semantic + text search across wiki pages. Returns
-  id/title/snippet (not full content).
-- `get_wiki_pages` — list/search by title or content substring.
-  Returns id/title/content-stub/updated_at.
+- `search` — semantic + text search across wiki pages. Each result
+  includes `view_url` and `download_url` (binary files only) — these
+  are tappable on mobile and can satisfy "show me X" / "send me X"
+  requests in ONE tool call. Don't reach for `get_document` unless
+  the user actually needs you to read the body.
+- `get_wiki_pages` — list/search by title or content substring. Same
+  enriched URL fields as `search`.
 - `get_document` — full text by id or title_match. For binary files
   (.docx/.pdf/.xlsx), returns the F2-extracted body text. Includes
   `view_url`, `download_url`, `preview_url` (Clerk-auth'd; Keegan can

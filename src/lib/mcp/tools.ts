@@ -85,7 +85,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "get_wiki_pages",
-    "List or search wiki pages (text match if a query is provided).",
+    "List or search wiki pages by title/content substring. Each result includes a tappable `view_url` (the doc on shared-brain) and, for binary files, a `download_url`. Returns content stub only — call `get_document` for full extracted text of a specific page.",
     { query: z.string().optional() },
     async ({ query }) => {
       const conds = [eq(wikiPages.orgId, ctx.orgId)];
@@ -100,11 +100,28 @@ export function registerTools(server: McpServer, ctx: McpContext) {
           title: wikiPages.title,
           content: wikiPages.content,
           updatedAt: wikiPages.updatedAt,
+          blobUrl: wikiPages.blobUrl,
+          extractedWordCount: wikiPages.extractedWordCount,
         })
         .from(wikiPages)
         .where(conds.length === 1 ? conds[0] : and(...conds))
         .limit(50);
-      return ok(rows);
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
+      return ok(
+        rows.map((r) => {
+          const isBinary = !!r.blobUrl;
+          return {
+            id: r.id,
+            title: r.title,
+            content: r.content,
+            updated_at: r.updatedAt,
+            kind: isBinary ? "binary" : "prose",
+            word_count: r.extractedWordCount ?? null,
+            view_url: isBinary ? `${base}/api/files/${r.id}` : `${base}/wiki/${r.id}`,
+            download_url: isBinary ? `${base}/api/files/${r.id}?download=1` : null,
+          };
+        }),
+      );
     },
   );
 
@@ -154,22 +171,49 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "search",
-    "Semantic search across wiki pages (falls back to text search if embeddings aren't configured).",
+    "Semantic search across wiki pages (falls back to text search). Each result includes a tappable `view_url` and (for binary files) a `download_url` so you can hand the user a link without a follow-up tool call. Use `get_document` only when the caller actually needs the full extracted text.",
     { query: z.string().min(1) },
     async ({ query }) => {
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
+      const enrich = (r: {
+        id: string;
+        title: string;
+        snippet: string;
+        score?: number;
+        blob_url?: string | null;
+      }) => {
+        const isBinary = !!r.blob_url;
+        return {
+          id: r.id,
+          title: r.title,
+          snippet: r.snippet,
+          score: r.score,
+          kind: isBinary ? "binary" : "prose",
+          view_url: isBinary ? `${base}/api/files/${r.id}` : `${base}/wiki/${r.id}`,
+          download_url: isBinary ? `${base}/api/files/${r.id}?download=1` : null,
+        };
+      };
+
       if (isEmbeddingsConfigured()) {
         const vec = await embed(query);
         if (vec) {
           const literal = `[${vec.join(",")}]`;
           const rows = await db.execute(sql`
-            select id, title, left(content, 400) as snippet,
+            select id, title, left(content, 400) as snippet, blob_url,
                    1 - (embedding <=> ${literal}::vector) as score
             from wiki_pages
             where org_id = ${ctx.orgId} and embedding is not null
             order by embedding <=> ${literal}::vector
             limit 10
           `);
-          return ok({ mode: "semantic", results: rows.rows ?? rows });
+          const list = ((rows as unknown as { rows?: unknown[] }).rows ?? (rows as unknown as unknown[])) as Array<{
+            id: string;
+            title: string;
+            snippet: string;
+            blob_url: string | null;
+            score: number;
+          }>;
+          return ok({ mode: "semantic", results: list.map(enrich) });
         }
       }
       const rows = await db
@@ -177,6 +221,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
           id: wikiPages.id,
           title: wikiPages.title,
           snippet: sql<string>`left(${wikiPages.content}, 400)`,
+          blob_url: wikiPages.blobUrl,
         })
         .from(wikiPages)
         .where(
@@ -186,7 +231,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
           ),
         )
         .limit(10);
-      return ok({ mode: "text", results: rows });
+      return ok({ mode: "text", results: rows.map(enrich) });
     },
   );
 
