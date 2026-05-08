@@ -290,6 +290,38 @@ export const filingRules = pgTable(
   ],
 );
 
+// ─── MCP Reliability Hardening — request log ─────────────────────────
+
+export const mcpRequestStatusValues = ["ok", "auth_fail", "error"] as const;
+export type McpRequestStatus = (typeof mcpRequestStatusValues)[number];
+
+/**
+ * Per-request log of MCP traffic. Used by the /status page and
+ * /api/status endpoint to surface health metrics. Privacy: we
+ * intentionally do NOT log request bodies, tool arguments, or
+ * response data — only metadata about the request itself.
+ */
+export const mcpRequestLog = pgTable(
+  "mcp_request_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    httpMethod: text("http_method").notNull(),
+    status: text("status", { enum: mcpRequestStatusValues }).notNull(),
+    httpStatus: integer("http_status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    /** Source IP / forwarded-for, useful for rate-limit forensics later. */
+    clientIp: text("client_ip"),
+    /** User-Agent header — helps distinguish Desktop vs mcp-remote vs API. */
+    userAgent: text("user_agent"),
+    errorMessage: text("error_message"),
+  },
+  (t) => [
+    index("mcp_log_created_idx").on(t.createdAt),
+    index("mcp_log_status_idx").on(t.status),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
 export type Space = typeof spaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
@@ -300,3 +332,4 @@ export type ActivityFeedEntry = typeof activityFeed.$inferSelect;
 export type VaultSyncEntry = typeof vaultSyncLog.$inferSelect;
 export type SyncConfig = typeof syncConfigs.$inferSelect;
 export type FilingRule = typeof filingRules.$inferSelect;
+export type McpRequestLog = typeof mcpRequestLog.$inferSelect;

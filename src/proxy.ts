@@ -12,6 +12,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/operating-instructions",
   // Phase 4b: cron endpoint for background AI edges (CRON_SECRET / MCP_API_KEY).
   "/api/cron/(.*)",
+  // MCP Reliability Hardening: public health endpoint (read-only, no PII).
+  "/api/status",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

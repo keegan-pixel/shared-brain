@@ -364,10 +364,17 @@ See ADR-023 for the architecture rationale (three-layer drift defense: standing 
 ### MCP Reliability Hardening (PRE-PHASE-7, P0 per ADR-026)
 **Goal:** External MCP connectivity is rock-solid because it IS the product. Disconnect = broken product.
 
-- [ ] **Native remote MCP migration** — if Claude Desktop now supports HTTPS MCP without `mcp-remote` stdio bridge, switch to that and eliminate the dominant failure mode
-- [ ] **`npm run reconnect-mcp`** diagnostic CLI — runs the steps from Runbook's "MCP disconnected" decision tree automatically and reports which step failed
+- [x] **`npm run reconnect-mcp`** diagnostic CLI — runs the Runbook's "MCP disconnected" decision tree automatically (platform health, MCP handshake, Claude Desktop config alignment, stale `mcp-remote` subprocesses), with `--fix` mode that syncs config + kills stale processes. Customer-support shield. (2026-05-08)
 - [ ] **`/status` page** + server-side MCP request logging — observability for handshake failures + per-deploy uptime
-- [ ] **Exit criterion:** A user reporting "MCP disconnected" can resolve it in <60 seconds via one command, OR we can see in our own logs why it broke before they tell us.
+- [ ] **Exit criterion:** A user reporting "MCP disconnected" can resolve it in <60 seconds via one command (✅ via reconnect-mcp), OR we can see in our own logs why it broke before they tell us.
+
+**Deferred to Phase 8 — Native Remote MCP via OAuth:**
+
+Research finding (2026-05-08): Claude's Custom Connectors UI requires OAuth 2.1 — does NOT accept static Bearer tokens. Sources: [Custom Connectors docs](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [GitHub issue #112](https://github.com/anthropics/claude-ai-mcp/issues/112). To switch from `mcp-remote` stdio bridge → native Custom Connector, our `/api/mcp` would need OAuth (authorize endpoint, token endpoint, dynamic client registration, token storage).
+
+Rationale for deferring: multi-user (Phase 8) needs OAuth anyway — one shared `MCP_API_KEY` doesn't scale to N users with per-user permissions. Implementing OAuth in Phase 8 does both jobs at once. Until then, `reconnect-mcp` covers the dominant failure mode (~10s fix instead of a ticket).
+
+**Messages API path remains static-Bearer:** the Anthropic Messages API's `mcp_servers` parameter accepts `authorization_token` for direct programmatic calls. Our endpoint already works there without changes. So API-driven users (agent SDK, Claude Code via CLI) connect cleanly today; only the claude.ai web UI Custom Connectors path requires OAuth.
 
 ---
 
@@ -387,8 +394,14 @@ See ADR-025 for why no native app.
 
 ---
 
-### Phase 8 — Multi-user readiness (priority increased per ADR-026)
-Multi-user is the proving ground for the connectivity thesis at scale. Scope: per-user Clerk accounts, per-user Composio consumer keys, org-scoped data isolation, per-user operating instructions, productized MCP onboarding (one-command setup for any new user).
+### Phase 8 — Multi-user readiness + OAuth for native MCP (priority increased per ADR-026)
+Multi-user is the proving ground for the connectivity thesis at scale.
+
+Scope:
+- Per-user Clerk accounts; org-scoped data isolation already in place from earlier phases
+- Per-user Composio consumer keys; per-user operating instructions
+- **OAuth 2.1 for `/api/mcp`** — implements the authorization endpoint, token endpoint, dynamic client registration. Unlocks claude.ai's native Custom Connectors UI (paste URL → OAuth login → connected; no `mcp-remote` stdio bridge, no per-user `MCP_API_KEY` to manage). Per ADR-032.
+- Productized MCP onboarding — single command per new user (`shared-brain --install-skill claude` already exists; OAuth eliminates the key-paste step)
 
 ---
 

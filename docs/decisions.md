@@ -20,6 +20,60 @@ Newest at the top.
 
 ---
 
+## ADR-032 — Defer OAuth for `/api/mcp` to Phase 8 (multi-user)
+
+**Date:** 2026-05-08
+**Decision:** Don't implement OAuth 2.1 on `/api/mcp` as part of MCP
+Reliability Hardening. Defer to Phase 8 (multi-user readiness)
+where it's a structural prerequisite anyway.
+
+**Context:** Researched whether Claude's native Custom Connectors UI
+(claude.ai → Settings → Connectors) could replace `mcp-remote` stdio
+bridge for our endpoint, eliminating the dominant disconnect failure
+class. **Finding:** Custom Connectors only accept OAuth — they have
+no UI surface for static Bearer tokens. Sources:
+- [Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+  — only mentions OAuth client_id/secret in Advanced settings
+- [GitHub issue #112](https://github.com/anthropics/claude-ai-mcp/issues/112)
+  — "Custom MCP connectors only use Authorization: Bearer <api_key>,
+  and the connector UI only offers OAuth client id/secret with no
+  way to set a Bearer token or custom headers"
+
+To migrate, our endpoint would need:
+- `/.well-known/oauth-authorization-server` discovery
+- `/authorize` endpoint (OAuth authorization code flow with PKCE)
+- `/token` endpoint (code → access token + refresh token)
+- `/register` endpoint (RFC 7591 dynamic client registration)
+- Token storage (DB table for issued tokens)
+- Bearer middleware that accepts both static `MCP_API_KEY`
+  (backward compat) AND OAuth-issued tokens
+- ~2-3 days of careful implementation
+
+**Why defer to Phase 8 (not ship now):**
+
+1. Phase 8 needs OAuth anyway. One shared `MCP_API_KEY` doesn't scale
+   to N users with per-user permissions / quotas / activity attribution.
+   Implementing OAuth in Phase 8 does both jobs at once.
+2. The Anthropic Messages API path (programmatic / agent-SDK use) already
+   supports static Bearer tokens via `mcp_servers[].authorization_token`.
+   So API-driven users connect cleanly today.
+3. The `mcp-remote` stdio bridge path still works for end users who
+   want claude.ai → Custom Connectors. With `npm run reconnect-mcp`
+   (~10s fix for the dominant failure mode), the friction is bounded.
+4. Doing OAuth twice (once now for solo Keegan, once again to add
+   per-user identity in Phase 8) is duplicate effort.
+
+**Trade-off:** Solo Keegan keeps using `mcp-remote` + `reconnect-mcp`
+until Phase 8. The dominant failure (stale stdio subprocess) is
+caught and auto-fixed by the diagnostic CLI in <10s. That's an
+acceptable interim until OAuth lands.
+
+**Override conditions:** if (a) `mcp-remote` becomes unmaintained or
+breaks more frequently, or (b) a paying user demands native Custom
+Connectors before Phase 8 lands, pull OAuth forward.
+
+---
+
 ## ADR-031 — Unify body-hash function on SHA1 + alphabetical-key sort
 
 **Date:** 2026-05-07 · Phase F4 v3 (uncovered during smoke test)
