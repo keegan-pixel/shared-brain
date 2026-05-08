@@ -63,8 +63,9 @@ npm run build
    or equivalent — never trust the client to pass IDs from the right org.
 4. Run `npm run typecheck` to verify the Zod schema → handler types line up.
 5. Commit, push. Vercel auto-deploys in ~2 min.
-6. **Restart Claude Desktop** (Cmd-Q, reopen). The mcp-remote bridge re-fetches
-   the tool list on connection start; new tools won't appear until restart.
+6. **Restart Claude Desktop / claude.ai** (Cmd-Q, reopen, or refresh the
+   browser tab). The MCP tool list is fetched on connection start; new
+   tools won't appear until the client reconnects.
 
 ---
 
@@ -250,14 +251,37 @@ The secret is scrypt-hashed in the DB; if you lose it, re-register.
 Multiple `--redirect` flags allowed. Non-https redirects are rejected
 unless the host is `localhost`/`127.0.0.1`.
 
-### Connect from claude.ai
+### Connect from claude.ai (web + Desktop)
 
-1. claude.ai → Settings → Custom Connectors → Add new
+1. claude.ai web → Settings → Custom Connectors → Add new
 2. Server URL: `https://shared-brain-ecru.vercel.app/api/mcp`
 3. claude.ai auto-discovers OAuth via `.well-known/oauth-authorization-server`
 4. Approve the consent page (signed in as Keegan via Clerk)
 5. claude.ai stores the 30-day access token. Re-auth required after
    expiry (no refresh tokens in v1).
+
+**Claude Desktop inherits this connector via account state** — the
+Custom Connector you set up in claude.ai web automatically appears in
+Desktop after restart. As of 2026-05-08, Desktop's old `mcp-remote`
+stdio entry in `claude_desktop_config.json` was removed (the bridge
+was the dominant disconnect cause; OAuth replaces it with native HTTP).
+
+### Which clients still need `MCP_API_KEY`?
+
+OAuth (preferred):
+- claude.ai web (Custom Connectors UI)
+- Claude Desktop (inherits from claude.ai account)
+- Future GPT/Gemini/etc.
+
+Static `MCP_API_KEY` (legacy, still required for these):
+- Local sync agent (chokidar daemon — `/api/sync/*` endpoints)
+- Vercel Cron (`/api/cron/*`)
+- Backfill + maintenance scripts under `scripts/`
+- Anthropic Messages API direct callers (server-side, never sees a UI)
+
+`npm run rotate-key` still rotates `MCP_API_KEY` in `.env.local` and
+the daemon plist. The Desktop-config-update step it used to do is now
+a no-op (Desktop has no shared-brain entry to update).
 
 ### Token TTLs
 
@@ -549,14 +573,18 @@ npm run rotate-key
 The script:
 1. Generates a new key (never echoed to stdout)
 2. Updates `.env.local` (with backup at `.env.local.bak.<timestamp>`)
-3. Updates Claude Desktop's `claude_desktop_config.json` (`AUTH_HEADER`
-   field of the `shared-brain` MCP server entry; backup made)
+3. Touches Claude Desktop config — **legacy step, now a no-op**. Desktop
+   migrated to OAuth on 2026-05-08 (ADR-035) and no longer has a
+   `shared-brain` entry in `claude_desktop_config.json`.
 4. Updates the launchd daemon plist (`MCP_API_KEY` env var; backup made)
    and reloads the daemon via `launchctl bootout + bootstrap` so the
    running watcher picks up the new value
 5. Copies the new key to your clipboard for Vercel
-6. Prints a checklist of remaining manual steps (Vercel env var, Claude
-   Code, Claude Cowork, Claude Desktop restart)
+6. Prints a short checklist of remaining manual steps (Vercel env var only)
+
+After Desktop's OAuth migration, `MCP_API_KEY` is only used by the
+local sync agent, Vercel Cron, and backfill scripts. Rotating it does
+NOT affect any AI client connections.
 
 Use `--dry-run` to preview what would change without writing.
 

@@ -289,17 +289,16 @@ async function main() {
   console.log("─────────────────────────────────────────────");
   console.log("Auto-applied:");
   console.log(`  ${envLocal.updated ? "✓" : "—"} .env.local`);
-  console.log(`  ${claudeDesktop.updated ? "✓" : "—"} Claude Desktop config`);
+  console.log(`  ${claudeDesktop.updated ? "✓" : "—"} Claude Desktop config (LEGACY — Desktop now uses OAuth, this row should be empty)`);
   console.log(`  ${daemon.updated ? "✓" : "—"} Daemon plist${daemon.reloaded ? " (reloaded)" : ""}`);
   console.log("");
   console.log("Still manual:");
   console.log("  ☐ Vercel env var: Settings → Environment Variables →");
   console.log("    MCP_API_KEY → Edit → Cmd-V → Save → Redeploy");
-  console.log("  ☐ Claude Code (if installed):");
-  console.log("    claude mcp remove shared-brain && claude mcp add ...");
-  console.log("  ☐ Claude Cowork (if installed):");
-  console.log("    Cowork app → Settings → MCP servers → Shared Brain → update");
-  console.log("  ☐ Restart Claude Desktop (Cmd-Q then reopen) for new key to take effect");
+  console.log("");
+  console.log("Note: Claude Desktop + claude.ai web no longer use MCP_API_KEY —");
+  console.log("they connect via OAuth (Phase 8 v1, ADR-034). Only the local");
+  console.log("sync agent + cron + legacy clients still rely on the static key.");
   console.log("─────────────────────────────────────────────");
 }
 

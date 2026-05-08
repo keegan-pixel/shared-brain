@@ -20,6 +20,47 @@ Newest at the top.
 
 ---
 
+## ADR-035 — Migrate Claude Desktop off `mcp-remote` to native OAuth
+
+**Date:** 2026-05-08
+**Decision:** Remove the `shared-brain` `mcp-remote` stdio entry from
+`claude_desktop_config.json`. Claude Desktop now connects to the brain
+via the same Custom Connector configured in claude.ai web — Custom
+Connectors sync server-side via the user's Anthropic account, so a
+single OAuth registration covers both surfaces.
+
+**Why this matters:**
+- The `mcp-remote` stdio bridge was the dominant cause of MCP
+  disconnections (per `reconnect-mcp` field data; see ADR-032 + the
+  reliability hardening phase). With it gone, Desktop now uses native
+  Streamable HTTP transport — no subprocess to die, no stale processes
+  to kill.
+- Desktop no longer needs `MCP_API_KEY` in `claude_desktop_config.json`.
+  The static key is now only used by the local sync agent, Vercel Cron,
+  and maintenance scripts — none of which a user touches in normal
+  operation. Rotation pain (`npm run rotate-key`) is materially smaller.
+- Closes out the reliability story started in MCP Reliability Hardening
+  (2026-05-08): both AI client surfaces (Desktop + claude.ai web) are
+  now OAuth-native; the bridge is dead.
+
+**Side cleanups:**
+- Pre-rotation backup of the old config kept at
+  `~/Library/Application Support/Claude/claude_desktop_config.json.bak.pre-oauth-migration`
+- The unused "Claude Desktop" OAuth client registered earlier this
+  session (`sb_client_c802d1202c5e5623`) was deleted — claude.ai's
+  Custom Connector backend handles both surfaces with one client.
+- `rotate-key.ts` no longer prompts to restart Desktop and explicitly
+  notes the Desktop-update step is legacy. The script's existing
+  graceful-skip when no shared-brain entry is found means no code
+  change was needed beyond the summary message.
+
+**Rejected alternative:**
+- *Keep `mcp-remote` as a fallback.* No — having two `shared-brain`
+  servers active (one OAuth, one stdio) would duplicate every tool
+  call and confuse Claude. One canonical surface per client.
+
+---
+
 ## ADR-034 — OAuth 2.1 + PKCE on `/api/mcp` (Phase 8 v1)
 
 **Date:** 2026-05-08
