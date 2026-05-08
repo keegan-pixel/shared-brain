@@ -3,6 +3,7 @@ import { resolveOrgContext } from "@/lib/mcp/context";
 import { registerTools } from "@/lib/mcp/tools";
 import { db } from "@/lib/db/client";
 import { mcpRequestLog, type McpRequestStatus } from "@/lib/db/schema";
+import { validateAccessToken } from "@/lib/oauth/core";
 
 /**
  * Fire-and-forget log of every MCP request. Privacy: we record only
@@ -34,32 +35,69 @@ async function logMcpRequest(args: {
   }
 }
 
-function checkAuth(req: Request): { ok: true } | { ok: false; res: Response } {
+/**
+ * MCP authentication. Accepts either:
+ *   1. The static `MCP_API_KEY` (legacy / mcp-remote stdio bridge)
+ *   2. An OAuth-issued access token (Phase 8 v1, claude.ai Custom Connectors)
+ *
+ * The OAuth path looks up the token in `oauth_access_tokens` and
+ * confirms it's not expired or revoked. Future phases will use the
+ * resolved userId to scope data per-user; v1 still operates on the
+ * single-org context.
+ */
+async function checkAuth(req: Request): Promise<{ ok: true } | { ok: false; res: Response }> {
   const expected = process.env.MCP_API_KEY;
-  if (!expected) {
-    return {
-      ok: false,
-      res: new Response(JSON.stringify({ error: "MCP_API_KEY is not configured on the server" }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      }),
-    };
-  }
-  const auth = req.headers.get("authorization") ?? "";
-  const presented = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (!presented || presented !== expected) {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const presented = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+
+  // Build the WWW-Authenticate header that points OAuth-aware clients
+  // at our discovery document. Per the MCP auth spec, an unauthenticated
+  // request should return enough info for the client to start a flow.
+  const origin = (() => {
+    const fwdHost = req.headers.get("x-forwarded-host");
+    const fwdProto = req.headers.get("x-forwarded-proto");
+    if (fwdHost && fwdProto) return `${fwdProto}://${fwdHost}`;
+    const u = new URL(req.url);
+    return `${u.protocol}//${u.host}`;
+  })();
+  const wwwAuth = `Bearer realm="shared-brain-mcp", authorization_uri="${origin}/.well-known/oauth-authorization-server"`;
+
+  if (!presented) {
     return {
       ok: false,
       res: new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: {
           "content-type": "application/json",
-          "www-authenticate": 'Bearer realm="shared-brain-mcp"',
+          "www-authenticate": wwwAuth,
         },
       }),
     };
   }
-  return { ok: true };
+
+  // Path 1: static API key match.
+  if (expected && presented === expected) {
+    return { ok: true };
+  }
+
+  // Path 2: OAuth-issued access token.
+  if (presented.startsWith("sb_at_")) {
+    const validated = await validateAccessToken(presented);
+    if (validated) return { ok: true };
+  }
+
+  return {
+    ok: false,
+    res: new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": wwwAuth,
+      },
+    }),
+  };
 }
 
 // All MCP writes are attributed to this actor in the activity feed for Phase 1.
@@ -77,7 +115,7 @@ const mcp = createMcpHandler(
 
 async function handler(req: Request) {
   const start = Date.now();
-  const auth = checkAuth(req);
+  const auth = await checkAuth(req);
   if (!auth.ok) {
     const duration = Date.now() - start;
     void logMcpRequest({

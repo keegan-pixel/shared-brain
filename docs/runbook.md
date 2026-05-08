@@ -217,6 +217,64 @@ your "For You" connections. See ADR-020 for the full reasoning.
 
 ---
 
+## OAuth on `/api/mcp` (Phase 8 v1)
+
+Native AI clients (claude.ai Custom Connectors, future GPT/Gemini)
+connect to the brain via OAuth 2.1 Authorization Code + PKCE — no
+`mcp-remote` stdio bridge required. The legacy `MCP_API_KEY` Bearer
+auth still works in parallel for the local agent + scripts.
+
+### Surface
+
+- `GET /.well-known/oauth-authorization-server` — RFC 8414 metadata.
+  Public + CORS-open. The AI platform's connector setup fetches this
+  first to learn the authorize/token URLs.
+- `GET /oauth/authorize?client_id=…&redirect_uri=…&response_type=code&code_challenge=…&code_challenge_method=S256&state=…`
+  Clerk-protected consent page. Validates every param; on Approve,
+  302s to the redirect with `code` + `state`.
+- `POST /api/oauth/token` — Form- or JSON-encoded. Exchanges code +
+  PKCE verifier for an access token. Accepts client credentials via
+  HTTP Basic auth or body fields. Returns
+  `{ access_token: "sb_at_…", token_type: "Bearer", expires_in: 2592000, scope }`.
+- `/api/mcp` accepts either `Bearer <MCP_API_KEY>` (legacy) or
+  `Bearer sb_at_…` (OAuth). Unauthed requests return a
+  `WWW-Authenticate` header pointing at the discovery doc.
+
+### Register a client
+
+`npm run create-oauth-client -- --name "<display name>" --redirect <https-uri>`
+
+Prints `client_id` + `client_secret` ONCE — save them in 1Password.
+The secret is scrypt-hashed in the DB; if you lose it, re-register.
+
+Multiple `--redirect` flags allowed. Non-https redirects are rejected
+unless the host is `localhost`/`127.0.0.1`.
+
+### Connect from claude.ai
+
+1. claude.ai → Settings → Custom Connectors → Add new
+2. Server URL: `https://shared-brain-ecru.vercel.app/api/mcp`
+3. claude.ai auto-discovers OAuth via `.well-known/oauth-authorization-server`
+4. Approve the consent page (signed in as Keegan via Clerk)
+5. claude.ai stores the 30-day access token. Re-auth required after
+   expiry (no refresh tokens in v1).
+
+### Token TTLs
+
+- **Authorization code**: 10 minutes, single-use
+- **Access token**: 30 days, opaque `sb_at_…`, no refresh tokens
+- **Revocation**: set `oauth_access_tokens.revoked_at` (no UI in v1 —
+  do it via DB)
+
+### What's NOT in v1
+
+Per-user identity — every OAuth-issued token currently resolves to
+the same default org as the legacy `MCP_API_KEY`. Phase 8 v2 wires
+the validated token's `userId` through to `resolveOrgContext` and
+per-user Composio keys.
+
+---
+
 ## AI Filing Engine + sync configs (Phase F4 v1/v2/v3)
 
 The platform pulls in external content (today: Gmail; later: Drive,

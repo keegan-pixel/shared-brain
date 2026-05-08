@@ -47,7 +47,8 @@ related: "[[AI-Native PM Platform Vision]]"
 | F4a/b — additional ingestion adapters | ⏳ Queued | — |
 | **MCP Reliability Hardening** (P0 per ADR-026) | ✅ Complete | 2026-05-08 |
 | ~~7 — Mobile workflow tools~~ | ❌ Cancelled (ADR-033) | 2026-05-08 |
-| 8 — Multi-user readiness + OAuth (unblocks native Custom Connectors → mobile) | ⏳ Next up | — |
+| 8 v1 — OAuth on `/api/mcp` (claude.ai-native connectors) | ✅ Complete (ADR-034) | 2026-05-08 |
+| 8 v2 — Multi-user readiness (per-user identity + Composio keys) | 🅿️ Parked | — |
 
 ---
 
@@ -400,13 +401,29 @@ write a document to the brain at a given path).
 
 ---
 
-### Phase 8 — Multi-user readiness + OAuth for native MCP (priority increased per ADR-026)
-Multi-user is the proving ground for the connectivity thesis at scale.
+### Phase 8 v1 — OAuth on `/api/mcp` ✅ Shipped (2026-05-08, ADR-034)
 
-Scope:
+OAuth 2.1 Authorization Code + PKCE shipped on the brain. claude.ai's
+native Custom Connectors UI now connects via paste-URL → consent →
+done; no `mcp-remote` stdio bridge required. Discovery doc at
+`/.well-known/oauth-authorization-server`, Clerk-protected consent at
+`/oauth/authorize`, token exchange at `/api/oauth/token`. MCP handler
+accepts either the legacy `MCP_API_KEY` or `sb_at_…` access tokens.
+`npm run create-oauth-client` registers AI platforms manually (no DCR
+in v1).
+
+### Phase 8 v2 — Multi-user readiness (parked)
+
+The v1 OAuth surface is single-org — every issued token still resolves
+to the default org. v2 wires the validated token's `userId` through to
+`resolveOrgContext` so each user gets their own data + their own
+Composio consumer key + their own operating instructions. Revisit when
+there's a 2nd real user or company onboard.
+
+Scope when picked back up:
 - Per-user Clerk accounts; org-scoped data isolation already in place from earlier phases
 - Per-user Composio consumer keys; per-user operating instructions
-- **OAuth 2.1 for `/api/mcp`** — implements the authorization endpoint, token endpoint, dynamic client registration. Unlocks claude.ai's native Custom Connectors UI (paste URL → OAuth login → connected; no `mcp-remote` stdio bridge, no per-user `MCP_API_KEY` to manage). Per ADR-032.
+- Settings UI for revoking issued OAuth tokens
 - Productized MCP onboarding — single command per new user (`shared-brain --install-skill claude` already exists; OAuth eliminates the key-paste step)
 
 ---

@@ -46,7 +46,8 @@ why. Updated at the end of each phase.
 | ~~F4c — Manual upload UI~~ | ❌ Dropped | 2026-05-07 | Daemon already covers vault file ingestion; mobile case better served by a Phase 7 `file_document` workflow tool that uses Claude to auto-classify + file. A dumb-pipe web upload form is strictly worse than either path. |
 | MCP Reliability Hardening | ✅ Complete | 2026-05-08 | `npm run reconnect-mcp` diagnostic CLI + `mcp_request_log` table + `/status` page + `/api/status` JSON. Native Custom Connectors deferred to Phase 8 since they require OAuth which Phase 8 needs anyway (ADR-032). |
 | ~~7 — Mobile workflow tools~~ | ❌ Cancelled | 2026-05-08 | Workflow tools (`compose_invoice` etc.) violate ADR-026 + ADR-033: they're compositions of existing primitives, not primitives themselves. Mobile gap is OAuth (Phase 8), not platform-level workflows. The AI client composes workflows from primitives. |
-| 8 — Multi-user readiness | 🅿️ Parked | — | Per-user Clerk + per-user Composio consumer keys + org isolation; revisit when there's a 2nd real user or company onboard |
+| 8 v1 — OAuth on `/api/mcp` | ✅ Complete | 2026-05-08 | OAuth 2.1 Authorization Code + PKCE (S256). Discovery doc at `/.well-known/oauth-authorization-server`; consent page at `/oauth/authorize` (Clerk-protected); token exchange at `/api/oauth/token`. MCP handler accepts either `MCP_API_KEY` or `sb_at_…` access tokens; unauthenticated reqs return `WWW-Authenticate` pointing at the discovery doc. `npm run create-oauth-client` CLI for manual client registration. ADR-034. |
+| 8 v2 — Multi-user readiness | 🅿️ Parked | — | Per-user identity (token → userId → org), per-user Composio consumer keys, settings UI for token revocation. Revisit when there's a 2nd real user or company onboard. |
 
 **Live URLs:**
 - Production: https://shared-brain-ecru.vercel.app/
@@ -176,6 +177,70 @@ isn't placing the skill correctly.
 
 Both currently have explicit TODO markers. Until refreshed, agents
 fall back to platform `search` + `Pipeline/_Index` lookups.
+
+---
+
+## Phase 8 v1 — OAuth on `/api/mcp` (claude.ai-native connector path)
+
+**Shipped:** 2026-05-08
+**ADR:** [[Decisions#ADR-034]]
+
+### What was built
+
+- **Schema** (`drizzle/0006_fixed_sauron.sql`): `oauth_clients`,
+  `oauth_authorization_codes`, `oauth_access_tokens`. Single-use codes
+  with 10-minute TTL; access tokens with 30-day TTL + revocation
+  column.
+- **Core lib** (`src/lib/oauth/core.ts`): scrypt-based client-secret
+  hashing, opaque random tokens (`randomBytes(32).base64url`), PKCE
+  S256 verification, all CRUD helpers (`findClientById`,
+  `authenticateClient`, `issueAuthorizationCode`,
+  `consumeAuthorizationCode`, `issueAccessToken`,
+  `validateAccessToken`).
+- **Discovery** (`/api/.well-known/oauth-authorization-server`):
+  RFC 8414 metadata. Public, CORS-open. Points at our authorize/token
+  endpoints. claude.ai's connector setup fetches this first.
+- **Consent page** (`/oauth/authorize`): Server component in `(app)`
+  group so Clerk's middleware redirects to sign-in if needed. Validates
+  every param (`response_type=code`, S256-only PKCE, redirect_uri
+  whitelist). Approve/Deny forms wired to server actions that issue
+  the auth code and 302 to the client's redirect.
+- **Token exchange** (`/api/oauth/token`): Form- or JSON-encoded.
+  Accepts client credentials via Basic auth header or body. PKCE
+  verifier checked against stored challenge. Returns
+  `{ access_token: "sb_at_…", token_type: "Bearer", expires_in, scope }`.
+- **MCP middleware update**: `/api/mcp` now accepts either the
+  legacy `MCP_API_KEY` or any valid OAuth access token. Unauthed
+  requests get a `WWW-Authenticate: Bearer realm="…", authorization_uri="…/.well-known/oauth-authorization-server"`
+  header so OAuth-aware clients can self-discover the flow.
+- **Client registration CLI** (`npm run create-oauth-client`):
+  Manually registers a client (no Dynamic Client Registration in v1).
+  Generates id + secret, scrypt-hashes the secret, prints credentials
+  ONCE.
+- **Proxy update**: `/api/.well-known/oauth-authorization-server` and
+  `/api/oauth/token` are public (per RFC); `/oauth/authorize` is
+  intentionally NOT public (Clerk auth required).
+
+### What's deferred to v2
+
+Per-user identity in the MCP handler. Today the handler still resolves
+to the default org via `DEFAULT_ACTOR`; v2 will use the validated
+token's `userId` to pick the user's org and Composio key. Token
+revocation UI also deferred. See ADR-034 for the full rationale.
+
+### Setup flow (operator)
+
+```bash
+# 1. Register a client for claude.ai
+npm run create-oauth-client -- \
+  --name "Claude.ai web" \
+  --redirect "https://claude.ai/api/mcp/auth_callback"
+# (saves the printed client_id + client_secret somewhere safe)
+
+# 2. In claude.ai → Settings → Custom Connectors → Add new
+#    Server URL: https://shared-brain-ecru.vercel.app/api/mcp
+#    OAuth metadata is auto-discovered via /.well-known/...
+```
 
 ---
 

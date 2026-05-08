@@ -14,6 +14,10 @@ const isPublicRoute = createRouteMatcher([
   "/api/cron/(.*)",
   // MCP Reliability Hardening: public health endpoint (read-only, no PII).
   "/api/status",
+  // Phase 8 v1: OAuth discovery + token endpoints (public per RFC 8414/6749).
+  // /oauth/authorize is intentionally NOT public — it requires a Clerk session.
+  "/api/.well-known/oauth-authorization-server",
+  "/api/oauth/token",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

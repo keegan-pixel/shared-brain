@@ -290,6 +290,78 @@ export const filingRules = pgTable(
   ],
 );
 
+// ─── Phase 8 v1 — OAuth 2.1 for /api/mcp ─────────────────────────────
+
+/**
+ * OAuth client registrations. v1 supports manually-created clients
+ * (one per AI platform — Claude Desktop, Claude.ai web, future
+ * GPT/Gemini). Dynamic Client Registration (RFC 7591) deferred.
+ */
+export const oauthClients = pgTable(
+  "oauth_clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Public client identifier surfaced to AI platforms. */
+    clientId: text("client_id").notNull().unique(),
+    /** Hashed (bcrypt-style) client secret. NEVER store plaintext. */
+    clientSecretHash: text("client_secret_hash").notNull(),
+    /** Human-readable name (e.g. "Claude Desktop", "Claude.ai web"). */
+    name: text("name").notNull(),
+    /** Whitelist of allowed redirect URIs. Claude uses claude.ai/api/mcp/auth_callback or similar. */
+    redirectUris: text("redirect_uris").array().notNull().default(sql`ARRAY[]::text[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_clients_client_id_idx").on(t.clientId)],
+);
+
+/**
+ * Short-lived authorization codes issued at /oauth/authorize and
+ * exchanged for access tokens at /oauth/token. PKCE required.
+ * Single-use: marked `used=true` on first redemption.
+ */
+export const oauthAuthorizationCodes = pgTable(
+  "oauth_authorization_codes",
+  {
+    code: text("code").primaryKey(),
+    clientId: text("client_id").notNull(),
+    /** Clerk user ID who approved the grant. */
+    userId: text("user_id").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    /** PKCE code_challenge (SHA256 of verifier, base64url). */
+    codeChallenge: text("code_challenge").notNull(),
+    /** Always 'S256' for v1. */
+    codeChallengeMethod: text("code_challenge_method").notNull().default("S256"),
+    scope: text("scope").notNull().default(""),
+    used: text("used").notNull().default("false"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_codes_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Issued access tokens. Opaque random strings (no JWT — DB lookup is
+ * fine at our scale + lets us revoke instantly). Bound to a Clerk
+ * user_id; the MCP middleware resolves the user's org from this.
+ */
+export const oauthAccessTokens = pgTable(
+  "oauth_access_tokens",
+  {
+    token: text("token").primaryKey(),
+    clientId: text("client_id").notNull(),
+    userId: text("user_id").notNull(),
+    scope: text("scope").notNull().default(""),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When set, the token has been revoked. Validation must check this. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("oauth_tokens_user_idx").on(t.userId),
+    index("oauth_tokens_expires_idx").on(t.expiresAt),
+  ],
+);
+
 // ─── MCP Reliability Hardening — request log ─────────────────────────
 
 export const mcpRequestStatusValues = ["ok", "auth_fail", "error"] as const;
@@ -333,3 +405,6 @@ export type VaultSyncEntry = typeof vaultSyncLog.$inferSelect;
 export type SyncConfig = typeof syncConfigs.$inferSelect;
 export type FilingRule = typeof filingRules.$inferSelect;
 export type McpRequestLog = typeof mcpRequestLog.$inferSelect;
+export type OAuthClient = typeof oauthClients.$inferSelect;
+export type OAuthAuthorizationCode = typeof oauthAuthorizationCodes.$inferSelect;
+export type OAuthAccessToken = typeof oauthAccessTokens.$inferSelect;

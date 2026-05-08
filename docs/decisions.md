@@ -20,6 +20,67 @@ Newest at the top.
 
 ---
 
+## ADR-034 — OAuth 2.1 + PKCE on `/api/mcp` (Phase 8 v1)
+
+**Date:** 2026-05-08
+**Decision:** Ship OAuth 2.1 Authorization Code + PKCE on the brain so
+claude.ai's native Custom Connectors UI (and any future
+standards-compliant AI client) can connect without the `mcp-remote`
+stdio bridge. Defer multi-user identity scoping to Phase 8 v2 — v1 is
+still a single-org server, but it now speaks OAuth.
+
+**Surface shipped:**
+
+- `GET /.well-known/oauth-authorization-server` — RFC 8414 metadata.
+  Public. CORS open. Points at our authorize/token endpoints.
+- `GET /oauth/authorize` — Clerk-protected consent page (server
+  component in `(app)` group). Validates `client_id`, `redirect_uri`,
+  PKCE `code_challenge` (S256 only), `response_type=code`. Server
+  action issues an `ac_…` code and 302s to the client's redirect.
+- `POST /api/oauth/token` — Exchanges code for an `sb_at_…` opaque
+  access token. Verifies PKCE (`SHA256(verifier) === challenge`).
+  Accepts client credentials via Basic auth or form body. Returns
+  `{ access_token, token_type: "Bearer", expires_in, scope }`.
+- MCP handler at `/api/mcp` now accepts EITHER the legacy
+  `MCP_API_KEY` OR a valid OAuth access token. Unauthenticated
+  requests get a `WWW-Authenticate` header pointing at the discovery
+  doc so OAuth-aware clients self-discover the flow.
+- `npm run create-oauth-client` — manual client registration CLI
+  (no DCR in v1). Generates `client_id` + `client_secret`, scrypt-hashes
+  the secret, prints both once.
+
+**Token policy:**
+- 30-day access tokens, no refresh tokens (re-authorize when expired).
+  Multi-day TTL keeps the user's setup-then-forget UX intact for AI
+  clients that connect rarely.
+- Opaque random tokens (`randomBytes(32).base64url`), DB-backed.
+  Lookups are cheap at our scale and revocation is instant (set
+  `revoked_at`).
+- Auth codes are single-use (`used` column flipped on first
+  redemption), 10-minute TTL.
+
+**Rejected alternatives:**
+- *JWT access tokens.* Pointless complexity at our scale; revocation
+  needs a denylist anyway.
+- *Refresh tokens.* Doubles the surface area for a single-org v1.
+  30-day access tokens are long enough that re-auth is rare.
+- *Dynamic Client Registration (RFC 7591).* claude.ai's connector UI
+  works fine with manually-issued client_ids. Adding DCR is a small
+  follow-up if/when we need it.
+- *Skipping OAuth, sticking with `mcp-remote`.* The stdio bridge is
+  the dominant cause of MCP disconnections (per `reconnect-mcp` field
+  data). claude.ai's native Custom Connectors path needs OAuth to even
+  try.
+
+**v2 scoped out:**
+- Per-user identity threading through the MCP handler (token →
+  `userId` → `org` → tools). Today the handler still resolves to the
+  default org via `DEFAULT_ACTOR`. v2 will use the validated token's
+  `userId` to pick the user's org and Composio key.
+- Settings UI for revoking issued tokens.
+
+---
+
 ## ADR-033 — Drop Phase 7 workflow tools; primitives-only at the brain layer
 
 **Date:** 2026-05-08
