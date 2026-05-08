@@ -85,7 +85,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "get_wiki_pages",
-    "List or search wiki pages by title/content substring. Each result includes a tappable `view_url` (the doc on shared-brain) and, for binary files, a `download_url`. Returns content stub only — call `get_document` for full extracted text of a specific page.",
+    "List/search Keegan's vault pages by exact title/content substring. Like `search` but text-match instead of semantic — better when you have an exact title phrase. Returns content stub plus tappable `view_url` and `download_url`. NOT for searching Composio services — this is vault/brain content only.",
     { query: z.string().optional() },
     async ({ query }) => {
       const conds = [eq(wikiPages.orgId, ctx.orgId)];
@@ -171,7 +171,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "search",
-    "Semantic search across wiki pages (falls back to text search). Each result includes a tappable `view_url` and (for binary files) a `download_url` so you can hand the user a link without a follow-up tool call. Use `get_document` only when the caller actually needs the full extracted text.",
+    "PRIMARY tool for finding ANY content in Keegan's Shared Brain / Obsidian vault / notes — contracts, meeting notes, contact cards, project docs, invoices, transcripts, anything indexed in his vault. Semantic + text search across wiki pages. Returns id/title/snippet plus tappable `view_url` and (for binary files) `download_url`. Use this for ANY request like 'find', 'pull up', 'show me', 'where is', 'what's in' that targets vault/brain/notes/docs/files. Do NOT use Composio search for vault content — Composio searches external services (Gmail/Drive/etc); this searches Keegan's actual filed knowledge.",
     { query: z.string().min(1) },
     async ({ query }) => {
       const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
@@ -237,7 +237,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "get_document",
-    "Read the full text of a wiki page or document. Returns prose markdown for `.md` pages and the extracted body text for binary files (.docx / .pdf / .xlsx — extraction shipped in F2). Use AFTER `search` or `get_wiki_pages` finds a candidate, when the caller asks to actually read or summarize the doc.",
+    "Read the FULL extracted text of a doc in Keegan's vault. Use AFTER `search` finds a candidate — pass the id (or title_match) and get back the complete body. Returns prose markdown for .md pages and full extracted text for binary files (.docx / .pdf / .xlsx). Includes view_url and download_url. Use this when the caller wants you to summarize, analyze, or quote from a specific vault doc — NOT for Gmail/Drive/Composio content.",
     {
       wiki_page_id: z.string().uuid().optional(),
       title_match: z
