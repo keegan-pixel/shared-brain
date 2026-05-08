@@ -179,78 +179,54 @@ These rules apply every session, every action, no exceptions.
   it returns the extracted text directly. The blob itself is only
   needed if `extractedText` is null (rare; surface that hint to Keegan).
 
-### Mobile flow: find / view / save / forward
-The mobile use case is rarely "generate content"; it's almost always
-"find this thing and let me act on it." Optimize for low-token,
-tappable-URL responses. The brain primitives compose like this:
+### What each MCP primitive returns (so you can pick the right one)
 
-- **"Pull up the brand doc"** → `search` → `get_document(id)` → return
-  a brief summary + the `view_url` from the response. Keegan can read
-  inline OR tap to open the full file in his phone browser.
-- **"Send me the brand doc"** (no read needed) → `get_document_url`
-  → return `view_url` and `download_url` directly. Don't waste tokens
-  pulling content if Keegan just wants the file.
-- **"Email this to <person>"** → `get_document_url` to get the URL,
-  then call Composio Gmail's `send_email` with the URL in the body
-  (and a one-line description). Don't try to attach the file bytes —
-  the URL is auth-gated, so only Keegan or the recipient with proper
-  access can open it; for external recipients use a quoted excerpt
-  from `get_document` instead and confirm before sending.
-- **"What's on my Trade Oracle inbox?"** → use Composio Gmail's list
-  tools directly (`COMPOSIO_GMAIL_*`); the brain only has emails
-  that have already been filed via the F4 v2 sync. For TODAY's unread,
-  go to Composio.
+The brain ships primitives, not workflows. You orchestrate. Here's
+what each tool actually does so you can compose for any request —
+mobile, desktop, or otherwise. Don't ask for a recipe; pick the right
+primitives.
 
-Always surface the URLs in your reply text, not just a description.
-On mobile, the URL is the action — Keegan taps it.
+**Brain (Shared Brain MCP):**
+- `search` — semantic + text search across wiki pages. Returns
+  id/title/snippet (not full content).
+- `get_wiki_pages` — list/search by title or content substring.
+  Returns id/title/content-stub/updated_at.
+- `get_document` — full text by id or title_match. For binary files
+  (.docx/.pdf/.xlsx), returns the F2-extracted body text. Includes
+  `view_url`, `download_url`, `preview_url` (Clerk-auth'd; Keegan can
+  tap on mobile).
+- `get_document_url` — same URL set as `get_document`, no content.
+  Use when reading the doc isn't needed.
+- `file_document` — write a new document at a given vault path with
+  optional source metadata (e.g. `{source: "granola", meeting_id, ...}`).
+  Confidence < 0.7 routes to `Inbox/` for active-learning reconciliation.
+- `update_wiki_page` — modify an existing page (append section,
+  replace, etc.).
+- `get_backlinks` — entities pointing to/from a given entity_id.
+- `get_active_state` — every space/project with non-completed items
+  + related entities. Use for "what's on my plate" / "what's slipping."
+- `get_activity_feed` — recent writes, optionally space-scoped.
+- `get_org`, `get_spaces`, `get_projects`, `get_items` — entity getters.
+- `create_*`, `move_item_status` — entity writers.
+- `record_session_summary` — log session end (see §4 Standing Rules).
 
-### Post-meeting follow-up flow (Granola → brain → action)
-This is the canonical mobile workflow after a call:
-*"Snag that Granola transcript, file it, summarize it, send a
-follow-up email."* Compose the chain explicitly — don't shortcut.
+**Granola MCP (meeting transcripts):**
+- `list_meetings` / `query_granola_meetings` — find a meeting by
+  date / title / fuzzy query.
+- `get_meeting_transcript(id)` — full transcript + attendees + metadata.
 
-1. **Find the meeting.** Granola MCP first:
-   - If Keegan named the meeting → `query_granola_meetings` or
-     `list_meetings` filtered by name/date
-   - If Keegan said "the one I just had" / "today's call" →
-     `list_meetings` with today's date, take the most recent
-   - Confirm the match with Keegan before pulling content if there's
-     more than one candidate.
-2. **Pull the transcript.** `get_meeting_transcript(meeting_id)`.
-   Granola provides title, attendees (name + email), date, and the
-   full transcript. Keep this in working memory — you'll reuse it.
-3. **File into the brain.** `file_document` with:
-   - `title`: meeting title (or `{date} — {short topic}` if Granola
-     didn't supply one)
-   - `content`: the transcript + any structured fields Granola gave
-     (attendees, agenda, action items)
-   - `target_path`: pick by client/space — e.g.
-     `Clients/Trade Oracle/Meetings/2026-05-08 — TOG FLOW review.md`,
-     or for ViaOps-internal calls
-     `ViaOps/Meetings/2026-05-08 — Q3 planning.md`. If unsure, file to
-     `Inbox/` and let the active-learning loop reconcile.
-   - `metadata`: `{ source: "granola", meeting_id, date, attendees }`
-4. **Summarize.** Native — produce a short summary (5–10 lines):
-   what was decided, action items, who owns what, any deadlines.
-   This is the email body and/or doc-update payload.
-5. **Pick the action Keegan asked for:**
-   - **Follow-up email** → `search` for the recipient's contact card
-     to confirm email + recent context, then Composio Gmail
-     `send_email`. Always confirm draft with Keegan before sending.
-     Include a link to the filed transcript (`view_url` from the
-     filed wiki page) — useful for Keegan, NOT for external recipients
-     unless they have Clerk auth on the brain (rare).
-   - **Update related docs** → `search` for the relevant pages (a
-     project plan, a client overview, a Pipeline card), `get_document`
-     to read the current state, then `update_wiki_page` with the
-     additions. Be surgical — append a dated section, don't rewrite.
-6. **Confirm what's done.** End with a one-line "Filed at <view_url>,
-   email sent to X / wiki page Y updated." Keegan needs the receipt.
+**Composio MCP (external services with multi-account routing):**
+- Gmail: send, search, list, get; routed per Section 5.
+- Calendar: events, free/busy.
+- Drive, Notion, LinkedIn, Discord, QuickBooks: search + CRUD.
 
-Note: the `granola-sync` skill exists for bulk daily sync (it pulls
-ALL new meetings and files them in one pass). This Profile.md recipe
-is for ad-hoc single-meeting follow-ups, especially on mobile where
-no skills are loaded.
+**URLs are tappable on mobile.** When the user wants to view, save,
+or forward a doc, surface `view_url` / `download_url` from
+`get_document` or `get_document_url` directly in your reply text.
+
+**External recipients can't tap brain URLs.** `view_url` requires a
+Clerk session. For emails to external people, quote a relevant
+excerpt from `get_document` rather than passing the URL.
 
 ### Pulling context from other sessions
 Before asking Keegan to re-explain anything from a prior session,
