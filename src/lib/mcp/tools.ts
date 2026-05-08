@@ -119,6 +119,9 @@ export function registerTools(server: McpServer, ctx: McpContext) {
             word_count: r.extractedWordCount ?? null,
             view_url: isBinary ? `${base}/api/files/${r.id}` : `${base}/wiki/${r.id}`,
             download_url: isBinary ? `${base}/api/files/${r.id}?download=1` : null,
+            // HTML-rendered preview (DOCX/XLSX → readable HTML; PDFs in
+            // iframe; images inline). Better mobile UX than the raw blob.
+            preview_url: isBinary ? `${base}/api/files/${r.id}/preview` : null,
           };
         }),
       );
@@ -191,6 +194,9 @@ export function registerTools(server: McpServer, ctx: McpContext) {
           kind: isBinary ? "binary" : "prose",
           view_url: isBinary ? `${base}/api/files/${r.id}` : `${base}/wiki/${r.id}`,
           download_url: isBinary ? `${base}/api/files/${r.id}?download=1` : null,
+          // HTML-rendered preview — best for DOCX/XLSX on mobile (no
+          // native renderer); browser viewer for PDFs and images.
+          preview_url: isBinary ? `${base}/api/files/${r.id}/preview` : null,
         };
       };
 
