@@ -204,6 +204,54 @@ tappable-URL responses. The brain primitives compose like this:
 Always surface the URLs in your reply text, not just a description.
 On mobile, the URL is the action — Keegan taps it.
 
+### Post-meeting follow-up flow (Granola → brain → action)
+This is the canonical mobile workflow after a call:
+*"Snag that Granola transcript, file it, summarize it, send a
+follow-up email."* Compose the chain explicitly — don't shortcut.
+
+1. **Find the meeting.** Granola MCP first:
+   - If Keegan named the meeting → `query_granola_meetings` or
+     `list_meetings` filtered by name/date
+   - If Keegan said "the one I just had" / "today's call" →
+     `list_meetings` with today's date, take the most recent
+   - Confirm the match with Keegan before pulling content if there's
+     more than one candidate.
+2. **Pull the transcript.** `get_meeting_transcript(meeting_id)`.
+   Granola provides title, attendees (name + email), date, and the
+   full transcript. Keep this in working memory — you'll reuse it.
+3. **File into the brain.** `file_document` with:
+   - `title`: meeting title (or `{date} — {short topic}` if Granola
+     didn't supply one)
+   - `content`: the transcript + any structured fields Granola gave
+     (attendees, agenda, action items)
+   - `target_path`: pick by client/space — e.g.
+     `Clients/Trade Oracle/Meetings/2026-05-08 — TOG FLOW review.md`,
+     or for ViaOps-internal calls
+     `ViaOps/Meetings/2026-05-08 — Q3 planning.md`. If unsure, file to
+     `Inbox/` and let the active-learning loop reconcile.
+   - `metadata`: `{ source: "granola", meeting_id, date, attendees }`
+4. **Summarize.** Native — produce a short summary (5–10 lines):
+   what was decided, action items, who owns what, any deadlines.
+   This is the email body and/or doc-update payload.
+5. **Pick the action Keegan asked for:**
+   - **Follow-up email** → `search` for the recipient's contact card
+     to confirm email + recent context, then Composio Gmail
+     `send_email`. Always confirm draft with Keegan before sending.
+     Include a link to the filed transcript (`view_url` from the
+     filed wiki page) — useful for Keegan, NOT for external recipients
+     unless they have Clerk auth on the brain (rare).
+   - **Update related docs** → `search` for the relevant pages (a
+     project plan, a client overview, a Pipeline card), `get_document`
+     to read the current state, then `update_wiki_page` with the
+     additions. Be surgical — append a dated section, don't rewrite.
+6. **Confirm what's done.** End with a one-line "Filed at <view_url>,
+   email sent to X / wiki page Y updated." Keegan needs the receipt.
+
+Note: the `granola-sync` skill exists for bulk daily sync (it pulls
+ALL new meetings and files them in one pass). This Profile.md recipe
+is for ad-hoc single-meeting follow-ups, especially on mobile where
+no skills are loaded.
+
 ### Pulling context from other sessions
 Before asking Keegan to re-explain anything from a prior session,
 **check session history**:
