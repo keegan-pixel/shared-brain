@@ -36,6 +36,7 @@ function parseArgs(argv: string[]): {
   vaultPath: string;
   apiBase: string;
   agentDir: string;
+  blobToken?: string;
   uninstall: boolean;
   dryRun: boolean;
 } {
@@ -47,6 +48,7 @@ function parseArgs(argv: string[]): {
   // The agent dir is wherever this repo's `agent/` lives. Default: ../agent
   // relative to the script (scripts/install-daemon.ts → agent/).
   let agentDir = resolve(__dirname, "..", "agent");
+  let blobToken: string | undefined = process.env.BLOB_READ_WRITE_TOKEN;
   let uninstall = false;
   let dryRun = false;
   for (let i = 0; i < args.length; i++) {
@@ -55,10 +57,11 @@ function parseArgs(argv: string[]): {
     else if (a === "--vault-path" && args[i + 1]) vaultPath = args[++i];
     else if (a === "--api-base" && args[i + 1]) apiBase = args[++i];
     else if (a === "--agent-dir" && args[i + 1]) agentDir = args[++i];
+    else if (a === "--blob-token" && args[i + 1]) blobToken = args[++i];
     else if (a === "--uninstall") uninstall = true;
     else if (a === "--dry-run") dryRun = true;
   }
-  return { apiKey, vaultPath, apiBase, agentDir, uninstall, dryRun };
+  return { apiKey, vaultPath, apiBase, agentDir, blobToken, uninstall, dryRun };
 }
 
 function escapeXml(s: string): string {
@@ -73,7 +76,18 @@ function buildPlist(opts: {
   apiBase: string;
   apiKey: string;
   vaultPath: string;
+  blobToken?: string;
 }): string {
+  // Optional Vercel Blob token. Without it, file_artifact syncs (PDFs,
+  // images, etc.) will skip the upload and leave wiki_pages.blob_url
+  // NULL — search results for those files lose their tappable
+  // download_url. Recovered via `npm run backfill:blob-urls` after
+  // (re)installing the daemon with the token plumbed through.
+  const blobBlock = opts.blobToken
+    ? `
+    <key>BLOB_READ_WRITE_TOKEN</key>
+    <string>${escapeXml(opts.blobToken)}</string>`
+    : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -98,7 +112,7 @@ function buildPlist(opts: {
     <key>MCP_API_KEY</key>
     <string>${escapeXml(opts.apiKey)}</string>
     <key>VAULT_PATH</key>
-    <string>${escapeXml(opts.vaultPath)}</string>
+    <string>${escapeXml(opts.vaultPath)}</string>${blobBlock}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -170,21 +184,37 @@ async function main() {
     throw new Error(`Vault path not found: ${opts.vaultPath}`);
   }
 
+  if (!opts.blobToken) {
+    console.warn(
+      "⚠ BLOB_READ_WRITE_TOKEN not set — daemon will skip blob uploads for binary files (PDFs, images, etc.). " +
+        "Set it in env or pass --blob-token. Easy way: " +
+        "`export BLOB_READ_WRITE_TOKEN=$(grep '^BLOB_READ_WRITE_TOKEN=' .env.local | cut -d= -f2-)`",
+    );
+  }
+
   const plist = buildPlist({
     agentDir: opts.agentDir,
     apiBase: opts.apiBase,
     apiKey: opts.apiKey,
     vaultPath: opts.vaultPath,
+    blobToken: opts.blobToken,
   });
 
   if (opts.dryRun) {
-    // Redact the API key in dry-run output so it doesn't leak into
-    // shells or transcripts. Real install writes the unredacted plist
-    // to disk with mode 0600.
-    const redactedPlist = plist.replace(
-      new RegExp(opts.apiKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+    // Redact secrets in dry-run output so they don't leak into shells
+    // or transcripts. Real install writes the unredacted plist to disk
+    // with mode 0600.
+    const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let redactedPlist = plist.replace(
+      new RegExp(escapeRe(opts.apiKey), "g"),
       "<REDACTED:" + opts.apiKey.length + "-chars>",
     );
+    if (opts.blobToken) {
+      redactedPlist = redactedPlist.replace(
+        new RegExp(escapeRe(opts.blobToken), "g"),
+        "<REDACTED:" + opts.blobToken.length + "-chars>",
+      );
+    }
     console.log(`[dry-run] would write plist to ${PLIST_PATH}:\n`);
     console.log(redactedPlist);
     console.log(`[dry-run] would launchctl bootstrap gui/${getUid()} ${PLIST_PATH}`);

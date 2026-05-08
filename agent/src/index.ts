@@ -101,8 +101,13 @@ async function watch(args: Args) {
   });
 
   const handle = (event: string) => async (file: string) => {
-    if (!file.endsWith(".md")) return;
+    // Don't filter by extension here — mapper.ts is the single source of
+    // truth for what's syncable (markdown, file_artifact, or ignored).
+    // Filtering on .md here silently drops binaries (PDFs, images, etc.)
+    // added during watch, leaving them unsynced until the next full scan.
+    if (path.basename(file).startsWith(".")) return;
     const res = await syncOne(file, cfg, api);
+    if (res.ok && res.action === "ignored") return;
     console.log(`[watch:${event}] ${fmt(file, cfg.vaultRoot, res)}`);
   };
 

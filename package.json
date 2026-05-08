@@ -18,6 +18,7 @@
     "reconnect-mcp": "tsx scripts/reconnect-mcp.ts",
     "create-oauth-client": "tsx scripts/create-oauth-client.ts",
     "backfill:activity-spaces": "tsx scripts/backfill-activity-spaces.ts",
+    "backfill:blob-urls": "tsx scripts/backfill-blob-urls.ts",
     "dedupe:activity": "tsx scripts/dedupe-activity.ts"
   },
   "dependencies": {

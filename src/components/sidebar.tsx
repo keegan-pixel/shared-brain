@@ -1,37 +1,38 @@
+"use client";
+
 import Link from "next/link";
 import { Activity, BookOpen, FolderKanban, Home, RefreshCw, HeartPulse } from "lucide-react";
-import { db } from "@/lib/db/client";
-import { spaces } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { ensureUserOrg } from "@/lib/org";
+import { cn } from "@/lib/utils";
+import type { SidebarOrg, SidebarSpace } from "@/components/sidebar-data";
 
-export async function Sidebar() {
-  const org = await ensureUserOrg();
-  const orgSpaces = await db
-    .select({ id: spaces.id, name: spaces.name })
-    .from(spaces)
-    .where(eq(spaces.orgId, org.id))
-    .orderBy(spaces.name);
+type SidebarProps = {
+  org: SidebarOrg;
+  spaces: SidebarSpace[];
+  className?: string;
+  onNavigate?: () => void;
+};
 
+export function Sidebar({ org, spaces: orgSpaces, className, onNavigate }: SidebarProps) {
+  const linkClass =
+    "flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]";
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--background))]">
+    <aside
+      className={cn(
+        "flex h-full w-60 shrink-0 flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--background))]",
+        className,
+      )}
+    >
       <div className="flex h-14 items-center border-b border-[hsl(var(--border))] px-4">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" onClick={onNavigate} className="flex items-center gap-2">
           <div className="h-6 w-6 rounded bg-[hsl(var(--primary))]" />
           <span className="font-semibold">{org.name}</span>
         </Link>
       </div>
       <nav className="flex-1 overflow-y-auto p-2 text-sm">
-        <Link
-          href="/"
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-        >
+        <Link href="/" onClick={onNavigate} className={linkClass}>
           <Home className="h-4 w-4" /> Home
         </Link>
-        <Link
-          href="/activity"
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-        >
+        <Link href="/activity" onClick={onNavigate} className={linkClass}>
           <Activity className="h-4 w-4" /> Activity
         </Link>
         <div className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
@@ -43,10 +44,7 @@ export async function Sidebar() {
           ) : (
             orgSpaces.map((s) => (
               <li key={s.id}>
-                <Link
-                  href={`/spaces/${s.id}`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-                >
+                <Link href={`/spaces/${s.id}`} onClick={onNavigate} className={linkClass}>
                   <FolderKanban className="h-4 w-4" /> {s.name}
                 </Link>
               </li>
@@ -56,25 +54,16 @@ export async function Sidebar() {
         <div className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
           Knowledge
         </div>
-        <Link
-          href="/wiki"
-          className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-        >
+        <Link href="/wiki" onClick={onNavigate} className={cn("mt-1", linkClass)}>
           <BookOpen className="h-4 w-4" /> Wiki
         </Link>
         <div className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
           Settings
         </div>
-        <Link
-          href="/settings/sync"
-          className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-        >
+        <Link href="/settings/sync" onClick={onNavigate} className={cn("mt-1", linkClass)}>
           <RefreshCw className="h-4 w-4" /> Sync
         </Link>
-        <Link
-          href="/status"
-          className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[hsl(var(--accent))]"
-        >
+        <Link href="/status" onClick={onNavigate} className={cn("mt-1", linkClass)}>
           <HeartPulse className="h-4 w-4" /> Status
         </Link>
       </nav>
