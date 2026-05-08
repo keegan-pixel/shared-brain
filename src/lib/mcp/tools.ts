@@ -171,7 +171,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "search",
-    "PRIMARY tool for finding ANY content in Keegan's Shared Brain / Obsidian vault / notes — contracts, meeting notes, contact cards, project docs, invoices, transcripts, anything indexed in his vault. Semantic + text search across wiki pages. Returns id/title/snippet plus tappable `view_url` and (for binary files) `download_url`. Use this for ANY request like 'find', 'pull up', 'show me', 'where is', 'what's in' that targets vault/brain/notes/docs/files. Do NOT use Composio search for vault content — Composio searches external services (Gmail/Drive/etc); this searches Keegan's actual filed knowledge.",
+    "PRIMARY tool for finding ANY content in Keegan's Shared Brain / Obsidian vault / notes — contracts, meeting notes, contact cards, project docs, invoices, transcripts, logos, images, anything indexed in his vault. Semantic + text search across wiki pages. Returns id/title/snippet plus `view_url` and (for binary files) `download_url`. Use this for ANY request like 'find', 'pull up', 'show me', 'where is', 'what's in', 'pull back', 'see the' targeting vault content. URLs are CLERK-AUTH'D — they're TAPPABLE LINKS for the user (he's signed in on his browser), NOT fetchable by you. Do NOT attempt to fetch view_url / download_url server-side; you'll get the login page. Surface the URLs in your reply text and let the user tap. Do NOT use Composio search for vault content — Composio is for external services (Gmail/Drive/etc); this searches Keegan's filed knowledge.",
     { query: z.string().min(1) },
     async ({ query }) => {
       const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";

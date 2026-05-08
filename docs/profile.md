@@ -180,6 +180,19 @@ fresh deploys until the connector refreshes), say so plainly and
 hand the user the `view_url` from `search` instead of chaining to
 unrelated services.
 
+### URLs from the brain are tappable, not fetchable
+`view_url` and `download_url` (returned by `search`,
+`get_wiki_pages`, `get_document`) require a Clerk session. They work
+when Keegan TAPS them in his browser (he's signed in). They do NOT
+work if you try to fetch the bytes server-side — you'll get the
+Clerk login HTML back, not the file content.
+
+Practical implication: if Keegan asks "show me the logos" or "pull
+back the PNGs", surface the `view_url`s as tappable links — don't
+try to fetch and render the images inline. Inline rendering won't
+work and the user is on mobile anyway, where tapping to open is the
+expected UX.
+
 ### Reading documents (especially on mobile)
 - **`search` and `get_wiki_pages` return previews / titles** — they
   don't return full document text. If Keegan asks you to read, pull,
