@@ -20,6 +20,86 @@ Newest at the top.
 
 ---
 
+## ADR-036 — Binary file storage is mandatory; daemon must forward BLOB_READ_WRITE_TOKEN; backfill discipline
+
+**Date:** 2026-05-08
+**Decision:** Treat binary file storage as a non-negotiable contract:
+every wiki_page representing a binary vault file MUST have its
+`blob_url` populated. A wiki entry without the binary is metadata
+without a product — the entry says "here's a logo" but tapping it on
+mobile yields nothing the user can act on.
+
+**Why this is an ADR (not just a bug):**
+The platform thesis (ADR-026) is brain-as-connectivity. A second user
+or a mobile user pulling content from the brain has no fallback to
+"open it in Obsidian on my desk." If the brain doesn't have the file,
+the brain failed. Storage parity with the user's local vault is a
+correctness constraint, not a feature.
+
+**The bug we shipped (and recovered from):**
+For ~10 days (2026-04-30 → 2026-05-08), binary files added to the
+vault were cataloged as wiki entries with metadata + Obsidian
+deep-links but the actual binary was never stored. Two combined
+silent failures:
+
+1. `agent/src/index.ts` watch handler filtered chokidar events to
+   `.md` only. Markdown propagated; PDFs / DOCX / images added during
+   `watch` mode were dropped before reaching the syncer.
+2. `scripts/install-daemon.ts` rendered a launchd plist that did NOT
+   include `BLOB_READ_WRITE_TOKEN` in the daemon's environment. So
+   even files that did make it through the syncer (via fullScan on
+   restart) hit `isBlobConfigured() === false` in the upload path
+   and silently produced wiki_pages rows with `blob_url = NULL`. No
+   error, no log, no user-visible signal.
+
+The user caught it from mobile testing — a logo lookup returned
+"file stored, no extractor for .png" with no tappable URL. The cross-
+format pattern (PNG asked for, didn't get; DOCX asked for, didn't
+get; PDF asked for, did get) made the systemic shape obvious.
+
+**Fixes:**
+
+- `agent/src/index.ts` — remove `.md` filter; let `mapper.ts` be the
+  single source of truth for syncability.
+- `scripts/install-daemon.ts` — plist now includes
+  `<key>BLOB_READ_WRITE_TOKEN</key><string>...</string>`. `--blob-token`
+  flag added; defaults to env var. Existing daemons need a reinstall
+  to pick this up.
+- `scripts/backfill-blob-urls.ts` (+ npm script `backfill:blob-urls`)
+  — idempotent recovery: walks `wiki_pages` where `blob_url IS NULL
+  AND metadata.tags @> '["file"]'::jsonb`, joins to `vault_sync_log`
+  for the canonical filesystem path, uploads to Vercel Blob, patches
+  the row. Safe to re-run.
+- Production run: 36 files restored (24 PNGs + 14 DOCX + 1 PDF +
+  1 SVG). Verified end-to-end by re-running the same `search` query
+  that originally returned `kind: "prose"` — now returns `kind:
+  "binary"` with proper view/download/preview URLs.
+
+**Standing rule going forward:**
+
+When the daemon is reinstalled (`install-daemon`, `rotate-key`, or
+manual plist edit), confirm `BLOB_READ_WRITE_TOKEN` is in the new
+plist. If you ever see binary files synced with `blob_url IS NULL`
+in `wiki_pages` again, treat it as a regression of the same bug
+class and run `npm run backfill:blob-urls -- --dry-run` first to
+scope the damage.
+
+**What we did not do:**
+
+- Add a row-level constraint requiring `blob_url IS NOT NULL` for
+  binary entries. The sync ingress doesn't have all the bytes at
+  insert time (the upload happens separately). A constraint here
+  would create a chicken-and-egg problem. The watch / fullScan paths
+  are the right fix points.
+- Add a metric on the count of binary rows with NULL `blob_url`.
+  Worth doing — adds a leading indicator. Deferred to a follow-up.
+
+**Related:** ADR-026 (the connectivity thesis), F1 (the original
+blob-storage phase that did upload all 109 files at backfill time —
+this bug regressed the steady-state path, not the initial backfill).
+
+---
+
 ## ADR-035 — Migrate Claude Desktop off `mcp-remote` to native OAuth
 
 **Date:** 2026-05-08

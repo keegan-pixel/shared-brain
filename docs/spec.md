@@ -48,6 +48,9 @@ related: "[[AI-Native PM Platform Vision]]"
 | **MCP Reliability Hardening** (P0 per ADR-026) | ✅ Complete | 2026-05-08 |
 | ~~7 — Mobile workflow tools~~ | ❌ Cancelled (ADR-033) | 2026-05-08 |
 | 8 v1 — OAuth on `/api/mcp` (claude.ai-native connectors) | ✅ Complete (ADR-034) | 2026-05-08 |
+| Desktop migrated off `mcp-remote` | ✅ Complete (ADR-035) | 2026-05-08 |
+| Mobile-friendly MCP surface (URL enrichment, get_document, get_document_url, mobile sidebar) | ✅ Complete | 2026-05-08 |
+| Binary file storage discipline (recovery + plug the hole) | ✅ Complete (ADR-036) | 2026-05-08 |
 | 8 v2 — Multi-user readiness (per-user identity + Composio keys) | 🅿️ Parked | — |
 
 ---

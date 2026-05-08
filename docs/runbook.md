@@ -426,6 +426,75 @@ Private blobs + Clerk-gated proxy. Anyone signed in to the platform
 URLs never reach the client. To share a file externally we'd need to
 add a per-file signed-share-link feature.
 
+### MCP results expose tappable URLs (mobile-friendly)
+`search`, `get_wiki_pages`, `get_document`, and `get_document_url` all
+return a `view_url` / `download_url` / `preview_url` set on every
+binary-file result. These point at the Clerk-auth'd file proxy:
+
+- `view_url` → `/api/files/<id>` — inline view (browser native viewer
+  for PDFs, downloads / opens-in-app for DOCX/XLSX, displays for images)
+- `download_url` → `/api/files/<id>?download=1` — forces attachment
+- `preview_url` → `/api/files/<id>/preview` — HTML-rendered version
+  (best mobile UX for DOCX/XLSX which phones don't render natively)
+
+URLs are TAPPABLE (work in the user's signed-in browser) but NOT
+fetchable server-side by AI clients — fetching them returns the Clerk
+login HTML. Tool descriptions say this explicitly so Claude doesn't
+chase fetch-paths through Composio Drive / Notion when an image or
+DOCX comes back.
+
+For prose pages (markdown), `view_url` points at `/wiki/<id>` —
+download/preview are null.
+
+### Binary upload contract (ADR-036)
+Every wiki entry representing a binary vault file MUST have
+`wiki_pages.blob_url` populated. A wiki entry without the binary is
+metadata without a product — for shared/multi-user use, "the brain
+has the metadata but the file is on someone's laptop" is an
+unacceptable failure mode.
+
+Two paths the daemon must keep clean:
+
+1. **Watch mode** (`agent/src/index.ts`): chokidar event handler MUST
+   NOT filter by extension — `mapper.ts` is the single source of truth
+   for syncability. Filtering by `.md` here silently drops binaries
+   added during a long-running watch session (this regressed once;
+   ADR-036).
+2. **launchd plist** (`scripts/install-daemon.ts`): plist MUST include
+   `BLOB_READ_WRITE_TOKEN` in `EnvironmentVariables`. Without it,
+   `isBlobConfigured()` returns false at upload time and the syncer
+   writes wiki_pages rows with `blob_url = NULL`, silently. After any
+   plist regeneration, grep for `BLOB_READ_WRITE_TOKEN` in the
+   installed plist to confirm.
+
+When you reinstall the daemon (`install-daemon`, `rotate-key`, or
+manual edit), confirm both still hold.
+
+### Backfill recovery: `npm run backfill:blob-urls`
+Idempotent script that walks `wiki_pages WHERE blob_url IS NULL AND
+metadata.tags @> '["file"]'::jsonb`, joins to `vault_sync_log` for
+the canonical filesystem path, uploads to Vercel Blob, and patches
+`blob_url` on the row. Safe to re-run; only touches rows that need
+recovery.
+
+```bash
+# Always start with a dry-run to scope the damage
+npm run backfill:blob-urls -- --dry-run
+
+# Then commit
+npm run backfill:blob-urls
+
+# Optional: cap batch size to test against a slice first
+npm run backfill:blob-urls -- --limit 25
+```
+
+Files missing locally (e.g. moved/renamed since their original sync)
+will fail with `read failed: ENOENT` and be skipped. The script
+reports `uploaded / missing locally / errors` totals at the end.
+
+Production run on 2026-05-08 recovered 36 files (24 PNGs / 14 DOCX /
+1 PDF / 1 SVG) after the regression described in ADR-036.
+
 ---
 
 ## Vault sync

@@ -375,6 +375,41 @@ have to ask "wait, why did you do X" — the docs failed.
 If this rule slips, treat it like a P1 bug. Keegan should not have
 to ask "when was the last time you updated docs."
 
+### Spawned tasks (`spawn_task` chips) — main session owns the doc pass
+When work happens in a spawned session (chip → fresh worktree), that
+session has the codebase but NOT this conversation's standing rules,
+Profile.md, ADRs, or Build Log conventions. It will commit code and
+local README updates, but it will NOT touch `docs/build-log.md`,
+`docs/decisions.md`, `docs/runbook.md`, `docs/spec.md`, or the vault
+mirrors.
+
+That means: **the main session is responsible for the doc pass on
+spawned-task work, after the spawned task lands.**
+
+When you spawn a task:
+
+1. In the spawn prompt, include scope ("update X file, add Y test, fix
+   Z bug") but DO NOT delegate the doc pass — the spawned session
+   doesn't have the context to do it well.
+2. After the spawned session completes (you'll see new files /
+   modified files in `git status`), do a comprehensive doc pass
+   yourself: read the diff, identify what shipped, update Build Log
+   + ADR + Runbook + Spec + mirrors, commit as a separate
+   `docs(...)` commit.
+3. If multiple spawned tasks shipped together (e.g. mobile sidebar +
+   binary backfill in the same git pull), batch them in one
+   doc-pass commit.
+
+The bug class this prevents: shipped code with stale docs. A future
+Claude reading the repo a week from now sees the code change but no
+ADR explaining why — has to reconstruct the rationale from git log
+or ask Keegan. That's exactly the "Keegan repeats himself" failure
+mode.
+
+**Quick check before declaring a phase done:** `grep -L "<the new
+thing>" docs/*.md` — if the file you'd expect doesn't mention it,
+fix that before moving on.
+
 ### Self-improve, don't make Keegan repeat himself
 If you make a mistake and he calls it out, don't just apologize and
 move on. Encode the lesson somewhere persistent: this Profile.md, an
