@@ -69,9 +69,9 @@ function buildEmbeddingInput(args: {
 }
 
 export const POST = handle(async (req: Request) => {
-  requireSyncAuth(req);
+  const { orgId } = await requireSyncAuth(req);
   const body = await parseJson(req, Schema);
-  const { orgId } = await resolveSyncOrg();
+
 
   const [logRow] = await db
     .select()

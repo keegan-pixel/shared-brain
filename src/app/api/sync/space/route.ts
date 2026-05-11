@@ -14,9 +14,9 @@ const Schema = z.object({
 });
 
 export const POST = handle(async (req: Request) => {
-  requireSyncAuth(req);
+  const { orgId } = await requireSyncAuth(req);
   const body = await parseJson(req, Schema);
-  const { orgId } = await resolveSyncOrg();
+
 
   // Pre-check is a best-effort fast path; the unique index on
   // (org_id, name) is what actually prevents the race (TOCTOU bug

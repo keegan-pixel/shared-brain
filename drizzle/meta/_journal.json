@@ -78,6 +78,13 @@
       "when": 1778539986008,
       "tag": "0010_easy_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778540578581,
+      "tag": "0011_premium_doctor_strange",
+      "breakpoints": true
     }
   ]
 }

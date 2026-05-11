@@ -15,9 +15,9 @@ const Schema = z.object({
 });
 
 export const POST = handle(async (req: Request) => {
-  requireSyncAuth(req);
+  const { orgId } = await requireSyncAuth(req);
   const body = await parseJson(req, Schema);
-  const { orgId } = await resolveSyncOrg();
+
 
   const [space] = await db
     .select()

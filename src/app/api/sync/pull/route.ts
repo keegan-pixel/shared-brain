@@ -85,8 +85,8 @@ function buildBody(args: {
 }
 
 export const GET = handle(async (req: Request) => {
-  requireSyncAuth(req);
-  const { orgId } = await resolveSyncOrg();
+  const { orgId } = await requireSyncAuth(req);
+
 
   const url = new URL(req.url);
   const sinceParam = url.searchParams.get("since");

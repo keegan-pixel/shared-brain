@@ -24,10 +24,40 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
-const LABEL = "com.viaops.shared-brain.sync";
-const PLIST_PATH = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
-const LOG_PATH = "/tmp/shared-brain-sync.log";
-const ERR_PATH = "/tmp/shared-brain-sync.err";
+/**
+ * Plist label is user-namespaced so multiple installs can coexist on
+ * one Mac. New users pass `--user-tag <slug>` to get a per-user label.
+ *
+ * Special case: when no --user-tag is provided AND no SHARED_BRAIN_USER_TAG
+ * env var is set, we use the LEGACY label `com.viaops.shared-brain.sync`
+ * (Keegan's original install). This means `npm run install-daemon` with
+ * no args keeps doing what it always did. Multi-user systems pass
+ * --user-tag for namespacing.
+ */
+const LEGACY_LABEL = "com.viaops.shared-brain.sync";
+function buildLabel(userTag: string, isExplicit: boolean): string {
+  if (!isExplicit) return LEGACY_LABEL;
+  return `com.shared-brain.sync.${userTag}`;
+}
+function plistPathFor(label: string): string {
+  return join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
+}
+function logPathFor(userTag: string, isExplicit: boolean): string {
+  if (!isExplicit) return `/tmp/shared-brain-sync.log`; // legacy path
+  return `/tmp/shared-brain-sync.${userTag}.log`;
+}
+function errPathFor(userTag: string, isExplicit: boolean): string {
+  if (!isExplicit) return `/tmp/shared-brain-sync.err`;
+  return `/tmp/shared-brain-sync.${userTag}.err`;
+}
+
+function sanitizeUserTag(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "user";
+}
 
 const DEFAULT_API_BASE = "https://shared-brain-ecru.vercel.app";
 
@@ -37,6 +67,8 @@ function parseArgs(argv: string[]): {
   apiBase: string;
   agentDir: string;
   blobToken?: string;
+  userTag: string;
+  userTagExplicit: boolean;
   uninstall: boolean;
   dryRun: boolean;
 } {
@@ -49,6 +81,12 @@ function parseArgs(argv: string[]): {
   // relative to the script (scripts/install-daemon.ts → agent/).
   let agentDir = resolve(__dirname, "..", "agent");
   let blobToken: string | undefined = process.env.BLOB_READ_WRITE_TOKEN;
+  // User tag namespaces the plist label so multiple users can install
+  // on the same Mac. When omitted, we use the LEGACY label
+  // (com.viaops.shared-brain.sync) to keep Keegan's original install
+  // working without changes.
+  let userTag = process.env.SHARED_BRAIN_USER_TAG || "viaops";
+  let userTagExplicit = !!process.env.SHARED_BRAIN_USER_TAG;
   let uninstall = false;
   let dryRun = false;
   for (let i = 0; i < args.length; i++) {
@@ -58,10 +96,24 @@ function parseArgs(argv: string[]): {
     else if (a === "--api-base" && args[i + 1]) apiBase = args[++i];
     else if (a === "--agent-dir" && args[i + 1]) agentDir = args[++i];
     else if (a === "--blob-token" && args[i + 1]) blobToken = args[++i];
+    else if (a === "--user-tag" && args[i + 1]) {
+      userTag = args[++i];
+      userTagExplicit = true;
+    }
     else if (a === "--uninstall") uninstall = true;
     else if (a === "--dry-run") dryRun = true;
   }
-  return { apiKey, vaultPath, apiBase, agentDir, blobToken, uninstall, dryRun };
+  return {
+    apiKey,
+    vaultPath,
+    apiBase,
+    agentDir,
+    blobToken,
+    userTag: sanitizeUserTag(userTag),
+    userTagExplicit,
+    uninstall,
+    dryRun,
+  };
 }
 
 function escapeXml(s: string): string {
@@ -77,6 +129,9 @@ function buildPlist(opts: {
   apiKey: string;
   vaultPath: string;
   blobToken?: string;
+  label: string;
+  logPath: string;
+  errPath: string;
 }): string {
   // Optional Vercel Blob token. Without it, file_artifact syncs (PDFs,
   // images, etc.) will skip the upload and leave wiki_pages.blob_url
@@ -93,7 +148,7 @@ function buildPlist(opts: {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${LABEL}</string>
+  <string>${opts.label}</string>
   <key>WorkingDirectory</key>
   <string>${escapeXml(opts.agentDir)}</string>
   <key>ProgramArguments</key>
@@ -119,9 +174,9 @@ function buildPlist(opts: {
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>${LOG_PATH}</string>
+  <string>${opts.logPath}</string>
   <key>StandardErrorPath</key>
-  <string>${ERR_PATH}</string>
+  <string>${opts.errPath}</string>
 </dict>
 </plist>
 `;
@@ -131,10 +186,10 @@ function getUid(): string {
   return execSync("id -u").toString().trim();
 }
 
-function isLoaded(): boolean {
+function isLoaded(label: string): boolean {
   try {
-    const out = execSync(`launchctl list | grep ${LABEL} || true`).toString();
-    return out.includes(LABEL);
+    const out = execSync(`launchctl list | grep ${label} || true`).toString();
+    return out.includes(label);
   } catch {
     return false;
   }
@@ -142,31 +197,40 @@ function isLoaded(): boolean {
 
 async function main() {
   const opts = parseArgs(process.argv);
+  const label = buildLabel(opts.userTag, opts.userTagExplicit);
+  const plistPath = plistPathFor(label);
+  const logPath = logPathFor(opts.userTag, opts.userTagExplicit);
+  const errPath = errPathFor(opts.userTag, opts.userTagExplicit);
+
+  console.log(
+    opts.userTagExplicit
+      ? `User tag: ${opts.userTag}  →  label: ${label}`
+      : `Using legacy label (no --user-tag provided): ${label}`,
+  );
 
   // ── Uninstall path ──────────────────────────────────────────────────
   if (opts.uninstall) {
-    if (!existsSync(PLIST_PATH)) {
-      console.log(`Nothing to uninstall — no plist at ${PLIST_PATH}`);
+    if (!existsSync(plistPath)) {
+      console.log(`Nothing to uninstall — no plist at ${plistPath}`);
       return;
     }
-    if (isLoaded()) {
+    if (isLoaded(label)) {
       console.log(`Stopping daemon...`);
       try {
-        execSync(`launchctl bootout gui/${getUid()} ${PLIST_PATH}`, {
+        execSync(`launchctl bootout gui/${getUid()} ${plistPath}`, {
           stdio: "inherit",
         });
       } catch {
-        // Older macOS uses unload; try as fallback
         try {
-          execSync(`launchctl unload ${PLIST_PATH}`, { stdio: "inherit" });
+          execSync(`launchctl unload ${plistPath}`, { stdio: "inherit" });
         } catch {
           /* swallow */
         }
       }
     }
-    await fs.unlink(PLIST_PATH);
-    console.log(`✓ removed ${PLIST_PATH}`);
-    console.log(`Logs at ${LOG_PATH} were not deleted; remove manually if you like.`);
+    await fs.unlink(plistPath);
+    console.log(`✓ removed ${plistPath}`);
+    console.log(`Logs at ${logPath} were not deleted; remove manually if you like.`);
     return;
   }
 
@@ -198,6 +262,9 @@ async function main() {
     apiKey: opts.apiKey,
     vaultPath: opts.vaultPath,
     blobToken: opts.blobToken,
+    label,
+    logPath,
+    errPath,
   });
 
   if (opts.dryRun) {
@@ -215,17 +282,17 @@ async function main() {
         "<REDACTED:" + opts.blobToken.length + "-chars>",
       );
     }
-    console.log(`[dry-run] would write plist to ${PLIST_PATH}:\n`);
+    console.log(`[dry-run] would write plist to ${plistPath}:\n`);
     console.log(redactedPlist);
-    console.log(`[dry-run] would launchctl bootstrap gui/${getUid()} ${PLIST_PATH}`);
+    console.log(`[dry-run] would launchctl bootstrap gui/${getUid()} ${plistPath}`);
     return;
   }
 
   // If already loaded, bootout first so the new config takes effect.
-  if (isLoaded()) {
+  if (isLoaded(label)) {
     console.log(`Daemon already loaded — replacing config...`);
     try {
-      execSync(`launchctl bootout gui/${getUid()} ${PLIST_PATH}`, {
+      execSync(`launchctl bootout gui/${getUid()} ${plistPath}`, {
         stdio: "inherit",
       });
     } catch {
@@ -234,21 +301,21 @@ async function main() {
   }
 
   await fs.mkdir(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
-  await fs.writeFile(PLIST_PATH, plist, { encoding: "utf8", mode: 0o600 });
-  console.log(`✓ wrote ${PLIST_PATH} (mode 600 — contains your MCP_API_KEY)`);
+  await fs.writeFile(plistPath, plist, { encoding: "utf8", mode: 0o600 });
+  console.log(`✓ wrote ${plistPath} (mode 600 — contains your MCP_API_KEY)`);
 
-  execSync(`launchctl bootstrap gui/${getUid()} ${PLIST_PATH}`, {
+  execSync(`launchctl bootstrap gui/${getUid()} ${plistPath}`, {
     stdio: "inherit",
   });
 
   // Give it a couple seconds to start, then verify.
   await new Promise((r) => setTimeout(r, 2500));
-  if (!isLoaded()) {
+  if (!isLoaded(label)) {
     throw new Error(
-      `Daemon failed to load. Check ${ERR_PATH} for details.`,
+      `Daemon failed to load. Check ${errPath} for details.`,
     );
   }
-  console.log(`✓ daemon loaded`);
+  console.log(`✓ daemon loaded as ${label}`);
   console.log("");
   console.log("Daemon is now running. It will:");
   console.log(`  - watch ${opts.vaultPath} for any markdown / PDF / DOCX / etc. changes`);
@@ -256,10 +323,10 @@ async function main() {
   console.log(`  - auto-restart if it crashes`);
   console.log(`  - auto-start on every login`);
   console.log("");
-  console.log(`Logs:    tail -f ${LOG_PATH}`);
-  console.log(`Errors:  tail -f ${ERR_PATH}`);
-  console.log(`Status:  launchctl list | grep ${LABEL}`);
-  console.log(`Stop:    npm run install-daemon -- --uninstall`);
+  console.log(`Logs:    tail -f ${logPath}`);
+  console.log(`Errors:  tail -f ${errPath}`);
+  console.log(`Status:  launchctl list | grep ${label}`);
+  console.log(`Stop:    npm run install-daemon -- --user-tag ${opts.userTag} --uninstall`);
 }
 
 main().catch((err) => {

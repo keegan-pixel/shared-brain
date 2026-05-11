@@ -1,7 +1,13 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db/client";
 import { organizations } from "@/lib/db/schema";
+
+/** Generate a per-org sync key. Format: `sb_sync_<43 base64url chars>`. */
+function generateSyncKey(): string {
+  return "sb_sync_" + randomBytes(32).toString("base64url");
+}
 
 /**
  * Phase 8 v2 prep — per-user org isolation.
@@ -89,8 +95,22 @@ export async function ensureUserOrg() {
       name,
       slug,
       ownerUserId: userId,
+      mcpApiKey: generateSyncKey(),
     })
     .returning();
 
   return created;
+}
+
+/**
+ * Generate (or rotate) the sync key for an org. Caller must verify
+ * the user is allowed to rotate (currently: only the owner).
+ */
+export async function rotateSyncKey(orgId: string): Promise<string> {
+  const newKey = generateSyncKey();
+  await db
+    .update(organizations)
+    .set({ mcpApiKey: newKey })
+    .where(eq(organizations.id, orgId));
+  return newKey;
 }

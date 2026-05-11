@@ -16,9 +16,9 @@ const Schema = z.object({
 });
 
 export const POST = handle(async (req: Request) => {
-  requireSyncAuth(req);
+  const { orgId } = await requireSyncAuth(req);
   const body = await parseJson(req, Schema);
-  const { orgId } = await resolveSyncOrg();
+
 
   // Idempotency: skip if hash unchanged
   const [logRow] = await db.select().from(vaultSyncLog).where(eq(vaultSyncLog.filePath, body.filePath));

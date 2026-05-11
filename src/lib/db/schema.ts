@@ -34,6 +34,14 @@ export const organizations = pgTable("organizations", {
   ownerUserId: text("owner_user_id").notNull(),
   /** Obsidian vault name for deep-links — null if user has no local vault. */
   vaultName: text("vault_name"),
+  /**
+   * Per-org sync key. Generated at org create (32 random bytes,
+   * base64url-encoded, prefixed `sb_sync_`). Used by the local sync
+   * daemon to authenticate against /api/sync/*. Each org has its own
+   * so users can't accidentally read/write to another org's data.
+   * Rotation: regenerate via /settings/org → "Rotate sync key".
+   */
+  mcpApiKey: text("mcp_api_key").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
