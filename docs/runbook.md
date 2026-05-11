@@ -218,6 +218,93 @@ your "For You" connections. See ADR-020 for the full reasoning.
 
 ---
 
+## Onboarding a new user (Phase 8 v2 MVP)
+
+The Thursday-install flow for a non-Keegan user. Walk in this order
+(see ADR-037 for what's in scope and what's deferred):
+
+### Pre-Thursday (Richard's homework, sent Monday)
+1. Sign up for an Anthropic API account → generate a key
+2. Optional: sign up for OpenAI API (cheaper embeddings)
+3. Think about: org name, main work buckets
+4. Light file cleanup (notice the structure, don't reorganize)
+5. Confirm Claude Desktop is installed
+
+### Thursday day-of
+
+| Step | Where | What |
+|---|---|---|
+| 1 | Email link | Send Richard the platform URL → he signs up via Clerk |
+| 2 | Onboarding checklist | His dashboard shows 5-step checklist; we walk it top to bottom |
+| 3 | `/settings/org` | Name his brain ("Trade Oracle Brain" or similar), optional Obsidian vault name |
+| 4 | `/settings/llm-keys` | Paste Anthropic key, optionally OpenAI key. Validate-and-save runs a test API call before persisting. |
+| 5 | `/settings/connections` | Composio walkthrough: sign up at app.composio.dev (link provided in UI), connect his services, copy consumer key, paste back. Validate-and-save hits Composio's MCP for confirmation. |
+| 6 | `/settings/daemon` | Reveals his per-org sync key. Enter vault path. Page generates a copy-paste install command (git clone + npm install + install-daemon --user-tag <slug>). We run it in Terminal on his Mac. Daemon starts, initial sync begins in background. |
+| 7 | `/settings/claude` | Copy MCP URL → paste into Claude Desktop → Custom Connectors → OAuth flow → approve. |
+| 8 | `/settings/claude` | Click "Download Project Instructions" → personalized .md file. Paste into Claude Desktop → his new Project → Custom Instructions. |
+| 9 | Claude Desktop | First conversation in his Project → Claude runs the discovery interview embedded in the Project Instructions → creates his spaces/projects/Profile via MCP primitives. |
+| 10 | Claude Desktop | Demo prompt: *"Look at everything in my brain and tell me what I should focus on this week."* Verifies end-to-end. |
+
+Total wall-clock: ~90 min of active steps + ~30-60 min of background
+initial sync he can wander off during.
+
+### Cloud-only mode (Path B)
+
+If the user doesn't keep work docs on their Mac:
+- Skip step 6 (no daemon)
+- All content comes via Composio integrations (auto-sync from Gmail,
+  Drive, etc.) + new docs created by Claude inside the brain
+- The onboarding checklist's "daemon connected" step stays pending —
+  user can dismiss it (manual; no UI for that yet) or leave it
+  unchecked as a sign of "skipped, intentional"
+
+### Org renaming after install
+
+User can rename at `/settings/org`. Slug stays stable on rename so
+URLs don't break. Changes propagate everywhere on next page load.
+
+---
+
+## Settings pages reference (Phase 8 v2 MVP)
+
+| Page | What's there |
+|---|---|
+| `/settings` | Index — cards for everything below |
+| `/settings/org` | Brain name, URL slug (read-only), Obsidian vault name |
+| `/settings/llm-keys` | Per-provider cards (Anthropic / OpenAI / Gemini) with paste + validate + save. Recommended use_for per provider pre-filled. |
+| `/settings/connections` | Composio consumer key with paste + validate. Per-connection routing deferred to v2.1. |
+| `/settings/daemon` | Per-org sync key (reveal-on-tap), vault-path input, generated one-line install command. Cloud-only mode skip-note. |
+| `/settings/claude` | MCP URL + Custom Connector setup steps + "Download Project Instructions" button. |
+| `/settings/sync` | Existing Phase F4 v2 page — per-Composio-connection auto-sync toggle. |
+
+---
+
+## Key resolver libs (Phase 8 v2 MVP)
+
+Each external-service key now has a per-org resolver with env-var
+fallback. Call sites pass `orgId` to scope per-org; resolvers walk
+the right table, fall back to env if no row exists.
+
+| Lib | Resolver | Falls back to env |
+|---|---|---|
+| `lib/llm-keys.ts` | `resolveOrgLlmKey({orgId, useCase, provider?})` | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` |
+| `lib/composio-keys.ts` | `resolveOrgComposioKey(orgId)` | `COMPOSIO_API_KEY`, `COMPOSIO_CONSUMER_API_KEY` |
+| `lib/sync/auth.ts` | `requireSyncAuth(req) → {orgId}` | `MCP_API_KEY` (resolves to first org) |
+
+When updating a call site that touches one of these services: pass
+the orgId from the caller's context (Clerk session, MCP context, or
+sync auth result). Resolvers are async; cache appropriately.
+
+### Backfill scripts
+
+| Script | What it does |
+|---|---|
+| `scripts/backfill-org-vault-name.ts` | Sets `vault_name = 'ViaOps'` on Keegan's org (idempotent). |
+| `scripts/backfill-org-llm-keys.ts` | Promotes env-var ANTHROPIC/OPENAI keys to `org_llm_config` rows for Keegan's org. Skips providers without env vars set. |
+| `scripts/backfill-org-sync-keys.ts` | Generates `mcp_api_key` for any org where it's null. Run once after migration 0011. |
+
+---
+
 ## OAuth on `/api/mcp` (Phase 8 v1)
 
 Native AI clients (claude.ai Custom Connectors, future GPT/Gemini)

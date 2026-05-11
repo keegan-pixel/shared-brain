@@ -20,6 +20,118 @@ Newest at the top.
 
 ---
 
+## ADR-037 — Phase 8 v2 MVP: per-org isolation as the smallest viable multi-tenancy
+
+**Date:** 2026-05-11
+**Decision:** Ship a stripped-down Phase 8 v2 — per-user org isolation
++ per-org API keys (LLM, Composio, sync) + per-user daemon plist
+namespacing — without the full multi-tenancy work (memberships,
+invites, visibility, multi-org doc membership). Driven by a concrete
+need: Richard Lackey's paid install on 2026-05-14.
+
+**Why a strict MVP cut:**
+The full Phase 8 v2 spec (committed 2026-05-11 in
+[[Phase 8 v2 — Multi-User + Onboarding Spec]]) is ~7-8 weeks of work
+across 10 epics. Richard's install is in 72 hours. The choice was:
+ship a slice that's *safe and useful* for a single second user, or
+miss the install date. We chose the slice.
+
+The hard constraint: **Richard's data cannot leak into Keegan's.**
+That requires per-user org isolation + per-org keys. Everything else
+in the v2 spec (multi-member orgs, invites, doc Venn diagrams,
+visibility rules) is unnecessary for Richard's solo-user scenario and
+can wait until the second team-org user signs up.
+
+**Scope shipped (Builds A-F, 2026-05-11):**
+
+| Build | What it solves |
+|---|---|
+| A — Per-user org isolation + rename | Each Clerk user gets their own org named after them on first sign-in. `ensureUserOrg()` no longer hardcodes "ViaOps". Settings UI to rename. |
+| B — Per-org LLM keys | `org_llm_config` table. Resolver lib swaps every embedding/chat/filing call from env var to org-scoped. Validate-on-save. Org pays for tokens, not the brain. |
+| C — Per-org Composio key | `org_composio_config` table. Resolver + validator. Composio MCP client cached per-orgId. |
+| D — Daemon plist namespacing + per-org sync keys | `--user-tag` flag for plist label. `organizations.mcp_api_key` per-org. `requireSyncAuth` resolves org from key. |
+| E — Onboarding checklist + setup pages | Dashboard shows 5-step status indicators. `/settings/daemon` generates personalized install command. `/settings/claude` shows MCP URL + setup steps. |
+| F — Claude Project Instructions generator | Template with discovery interview Claude runs to set up spaces/projects conversationally. Download CTA on /settings/claude. |
+
+**Scope explicitly NOT shipped (deferred to v2.1+):**
+- `org_memberships` table — multi-member orgs
+- Invite flow + acceptance UI
+- Role-based permissions (admin/member/viewer)
+- Space/project visibility (`org_wide` / `members` / `private`)
+- Multi-org doc membership (the Venn diagram from the planning conversation)
+- Per-connection Composio routing (which Composio connections feed which org)
+- LLM token caps + quota enforcement
+- Stripe billing
+- Audit log UI
+- Email notifications
+- DCR (RFC 7591) for AI client self-registration
+- Windows + Linux daemon installers
+- Per-user Profile.md hierarchy (org-level + user-level overrides)
+- Off-boarding flow polish
+
+**Backwards-compat strategy:**
+
+Every key resolver added in Builds B/C/D includes an env-var fallback:
+- LLM keys: `resolveOrgLlmKey()` checks `org_llm_config` first, then
+  `process.env.ANTHROPIC_API_KEY` / `OPENAI_API_KEY`.
+- Composio: `resolveOrgComposioKey()` checks `org_composio_config`
+  first, then `process.env.COMPOSIO_API_KEY` / `COMPOSIO_CONSUMER_API_KEY`.
+- Sync auth: `requireSyncAuth()` checks `organizations.mcp_api_key`
+  first, then `process.env.MCP_API_KEY` (resolves to first org).
+
+Keegan's existing setup (env-var-only config) keeps working with zero
+changes. He can opt into per-org configuration via the new UI when
+ready. Migration is voluntary and gradual.
+
+The daemon plist also has a backwards-compat path: omitting `--user-tag`
+uses the legacy label `com.viaops.shared-brain.sync` so his existing
+launchd entry is untouched. New users pass `--user-tag <slug>` for
+per-user namespacing.
+
+**The "discovery via Claude not UI" insight (Keegan, planning):**
+
+Original Phase 8 v2 plan had a multi-step setup wizard with form
+fields for "What spaces do you want?", "What are your standing
+rules?", etc. Keegan pointed out: this is exactly what the AI client
+can do conversationally via the MCP primitives we already have. No
+need for a UI wizard when `create_space`, `create_project`,
+`update_wiki_page` exist.
+
+Build F implements this: the downloadable Project Instructions
+include a first-run discovery interview structure Claude runs on the
+user's first conversation. Claude asks the questions, captures the
+answers, and creates the structure via primitives. No form fields.
+
+This is brain-as-connectivity-thesis at its purest (ADR-026): the AI
+client is the interface; the brain just provides the primitives.
+
+**Rejected alternatives:**
+
+- *Ship the full Phase 8 v2 first.* Would mean missing Richard's
+  install. Slice + iterate beats blocking on full scope.
+- *Skip per-org keys for Richard; route through Keegan's.* Hard no —
+  Richard's prompts would bill to Keegan's Anthropic account, his
+  Composio queries would hit Keegan's Gmail. Trust-killer.
+- *Build a CLI-only setup with no UI.* Workable for engineers,
+  unacceptable for a paying customer. Settings UI is the minimum
+  professionalism bar.
+- *Use Clerk Organizations.* Possible future move but a major
+  refactor of every org-scoped query. Not for MVP.
+
+**Open questions to resolve before Phase 8 v2 v2.1:**
+
+1. Encryption at rest for stored API keys. Today they're plain text
+   in the DB. Migrate to KMS / column-level encryption?
+2. Should the daemon migrate from static `MCP_API_KEY` to OAuth?
+3. When the second user signs up, what's the upgrade path from
+   solo-org to team-org? Convert in place, or new-org-with-imported-content?
+
+**Related:** [[Phase 8 v2 — Multi-User + Onboarding Spec]] (the full
+plan; this MVP is its v2.0 subset). ADR-034 (OAuth foundation we built
+on). ADR-026 (the connectivity-layer thesis this whole phase serves).
+
+---
+
 ## ADR-036 — Binary file storage is mandatory; daemon must forward BLOB_READ_WRITE_TOKEN; backfill discipline
 
 **Date:** 2026-05-08

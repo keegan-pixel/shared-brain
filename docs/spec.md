@@ -51,7 +51,8 @@ related: "[[AI-Native PM Platform Vision]]"
 | Desktop migrated off `mcp-remote` | ✅ Complete (ADR-035) | 2026-05-08 |
 | Mobile-friendly MCP surface (URL enrichment, get_document, get_document_url, mobile sidebar) | ✅ Complete | 2026-05-08 |
 | Binary file storage discipline (recovery + plug the hole) | ✅ Complete (ADR-036) | 2026-05-08 |
-| 8 v2 — Multi-user readiness (per-user identity + Composio keys) | 🅿️ Parked | — |
+| 8 v2 MVP — Per-org isolation (Builds A-F, for Richard's install) | ✅ Complete (ADR-037) | 2026-05-11 |
+| 8 v2 v2.1+ — Multi-tenancy proper (memberships, invites, visibility, billing) | 🅿️ Parked | — |
 
 ---
 
