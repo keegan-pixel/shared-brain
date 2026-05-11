@@ -92,7 +92,7 @@ export const POST = handle(async (req: Request) => {
   // this entry until the next successful embed.
   let embedding: number[] | null = null;
   try {
-    embedding = await embed(embeddingInput);
+    embedding = await embed(embeddingInput, orgId);
   } catch (err) {
     console.warn(`[sync] embed failed for ${body.filePath}: ${(err as Error).message}`);
   }

@@ -198,7 +198,7 @@ export async function fileDocument(input: FileDocumentInput): Promise<FileDocume
   let embedding: number[] | null = null;
   if (isEmbeddingsConfigured()) {
     try {
-      embedding = await embed(`${input.title}\n\n${input.content.slice(0, 6000)}`);
+      embedding = await embed(`${input.title}\n\n${input.content.slice(0, 6000)}`, input.orgId);
     } catch {
       /* swallow */
     }

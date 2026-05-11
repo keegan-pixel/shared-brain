@@ -201,7 +201,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
       };
 
       if (isEmbeddingsConfigured()) {
-        const vec = await embed(query);
+        const vec = await embed(query, ctx.orgId);
         if (vec) {
           const literal = `[${vec.join(",")}]`;
           const rows = await db.execute(sql`
@@ -548,7 +548,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
     "Create a new wiki page. Embedding is generated if OPENAI_API_KEY is set.",
     { title: z.string().min(1).max(240), content: z.string() },
     async ({ title, content }) => {
-      const embedding = await embed(`${title}\n\n${content}`);
+      const embedding = await embed(`${title}\n\n${content}`, ctx.orgId);
       const [created] = await db
         .insert(wikiPages)
         .values({ orgId: ctx.orgId, title, content, embedding: embedding ?? undefined })
@@ -577,7 +577,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
     async ({ page_id, content, title }) => {
       await loadWikiPageInOrg(ctx.orgId, page_id);
       const newTitle = title ?? undefined;
-      const embedding = await embed(`${title ?? ""}\n\n${content}`);
+      const embedding = await embed(`${title ?? ""}\n\n${content}`, ctx.orgId);
       const [updated] = await db
         .update(wikiPages)
         .set({

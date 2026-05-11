@@ -101,7 +101,7 @@ export function buildChatTools(args: { orgId: string; actorAgent: string }) {
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
         if (isEmbeddingsConfigured()) {
-          const vec = await embed(query);
+          const vec = await embed(query, orgId);
           if (vec) {
             const literal = `[${vec.join(",")}]`;
             const rows = await db.execute(sql`

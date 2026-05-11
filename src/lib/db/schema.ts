@@ -37,6 +37,46 @@ export const organizations = pgTable("organizations", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Phase 8 v2 — per-org LLM API keys.
+ *
+ * Each org brings its own Anthropic / OpenAI / (future) Gemini key.
+ * The brain doesn't pay for embeddings or chat tokens — the org does,
+ * via their own provider account.
+ *
+ * `use_for` is an array tag set that the key resolver uses to pick the
+ * right key for the task. Common values:
+ *   - "chat"        — in-platform chat panel
+ *   - "embeddings"  — semantic-search vector generation
+ *   - "filing"      — AI Filing Engine classification
+ *   - "all"         — fallback for any task
+ */
+export const orgLlmProviderValues = ["anthropic", "openai", "gemini"] as const;
+export type OrgLlmProvider = (typeof orgLlmProviderValues)[number];
+
+export const orgLlmConfig = pgTable(
+  "org_llm_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: orgLlmProviderValues }).notNull(),
+    apiKey: text("api_key").notNull(),
+    defaultModel: text("default_model"),
+    useFor: text("use_for").array().notNull().default(sql`ARRAY['all']::text[]`),
+    /** Optional monthly token cap; null = unlimited. Advisory only for now. */
+    monthlyTokenCap: integer("monthly_token_cap"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("org_llm_config_org_idx").on(t.orgId),
+    uniqueIndex("org_llm_config_org_provider_unique_idx").on(t.orgId, t.provider),
+  ],
+);
+export type OrgLlmConfig = typeof orgLlmConfig.$inferSelect;
+
 export const spaces = pgTable(
   "spaces",
   {

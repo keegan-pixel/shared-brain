@@ -1,4 +1,5 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { resolveOrgLlmKey } from "@/lib/llm-keys";
 import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
 import { z } from "zod";
 import { ApiError, jsonError } from "@/lib/api";
@@ -74,13 +75,6 @@ function buildSystemPrompt(args: {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return jsonError(
-      "ANTHROPIC_API_KEY is not configured on the server. Add it to Vercel env vars.",
-      500,
-    );
-  }
-
   let body: IncomingBody;
   try {
     body = (await req.json()) as IncomingBody;
@@ -117,8 +111,23 @@ export async function POST(req: Request) {
     buildSystemPrompt({ orgName, context: body.context }) +
     (composioHint ? `\n\n${composioHint}` : "");
 
+  // Resolve org's Anthropic key (falls back to env for legacy).
+  const resolved = await resolveOrgLlmKey({
+    orgId,
+    useCase: "chat",
+    provider: "anthropic",
+  });
+  if (!resolved) {
+    return jsonError(
+      "No Anthropic API key configured. Add one in Settings → LLM API keys, " +
+        "or set ANTHROPIC_API_KEY as a fallback env var.",
+      400,
+    );
+  }
+  const anthropicClient = createAnthropic({ apiKey: resolved.apiKey });
+
   const result = streamText({
-    model: anthropic(MODEL_ID),
+    model: anthropicClient(MODEL_ID),
     system,
     messages: await convertToModelMessages(body.messages),
     tools,
