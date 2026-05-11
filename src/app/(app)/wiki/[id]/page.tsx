@@ -28,13 +28,15 @@ export default async function WikiPage({ params }: Props) {
     frontmatter?: Record<string, unknown>;
   } | null) ?? null;
 
-  // Build an Obsidian deep link if we know the source path.
-  const VAULT_NAME = "ViaOps";
-  const obsidianHref = meta?.filePath
-    ? `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(
-        meta.filePath.replace(/\.md$/, ""),
-      )}`
-    : null;
+  // Build an Obsidian deep link if we know the source path AND the
+  // user has configured a vault name on their org. Cloud-only users
+  // (no local Obsidian) won't have one set, so we skip the link.
+  const obsidianHref =
+    meta?.filePath && org.vaultName
+      ? `obsidian://open?vault=${encodeURIComponent(org.vaultName)}&file=${encodeURIComponent(
+          meta.filePath.replace(/\.md$/, ""),
+        )}`
+      : null;
 
   // File-artifact details — present iff this entry was synced from a non-md file.
   const isFile = (meta?.tags ?? []).includes("file");

@@ -32,6 +32,8 @@ export const organizations = pgTable("organizations", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   ownerUserId: text("owner_user_id").notNull(),
+  /** Obsidian vault name for deep-links — null if user has no local vault. */
+  vaultName: text("vault_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

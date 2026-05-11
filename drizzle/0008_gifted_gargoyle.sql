@@ -1,0 +1,1 @@
+ALTER TABLE "organizations" ADD COLUMN "vault_name" text;
