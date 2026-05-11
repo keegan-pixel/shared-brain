@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Building2, Cable, KeyRound, RefreshCw } from "lucide-react";
+import { Building2, Cable, KeyRound, RefreshCw, HardDrive, Bot } from "lucide-react";
 import { ensureUserOrg } from "@/lib/org";
 
 export default async function SettingsIndex() {
@@ -28,6 +28,18 @@ export default async function SettingsIndex() {
       icon: RefreshCw,
       title: "Sync",
       description: "Auto-pull from Composio toolkits (Gmail, Drive, etc.)",
+    },
+    {
+      href: "/settings/daemon",
+      icon: HardDrive,
+      title: "Local sync daemon",
+      description: "Install the watcher that pushes your local vault to the brain",
+    },
+    {
+      href: "/settings/claude",
+      icon: Bot,
+      title: "Connect Claude",
+      description: "MCP server URL + Custom Connector setup instructions",
     },
   ];
   return (
