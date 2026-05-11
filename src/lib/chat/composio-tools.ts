@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { dynamicTool, jsonSchema } from "@ai-sdk/provider-utils";
 import type { ToolSet } from "ai";
+import { resolveOrgComposioKey } from "@/lib/composio-keys";
 
 /**
  * Composio integration via the universal MCP endpoint.
@@ -37,32 +38,43 @@ import type { ToolSet } from "ai";
 
 const DEFAULT_COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp";
 
-export function isComposioConfigured(): boolean {
-  // Accept either name for backward-compat. New canonical: COMPOSIO_API_KEY
-  // (the consumer key, ck_..., from Composio → Settings → Sessions).
+/**
+ * Per-org check: does this org have a Composio key configured? Env-var
+ * fallback returns true if either env name is set (legacy single-user).
+ */
+export async function isComposioConfigured(orgId?: string): Promise<boolean> {
+  if (orgId) {
+    const resolved = await resolveOrgComposioKey(orgId);
+    return !!resolved;
+  }
   return !!(process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY);
 }
 
-function getApiKey(): string | undefined {
-  return process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY;
-}
-
-let _client: Client | null = null;
-let _transport: StreamableHTTPClientTransport | null = null;
-let _toolsCache: ToolSet | null = null;
-let _toolsCacheAt = 0;
+/**
+ * Per-org Composio client cache. Each org gets its own connection
+ * because they have different keys + (eventually) different scopes.
+ * Cache TTL keeps the MCP handshake cost amortized across chat turns.
+ */
+type ClientEntry = {
+  client: Client;
+  transport: StreamableHTTPClientTransport;
+  toolsCache: ToolSet | null;
+  toolsCacheAt: number;
+};
+const _clientCache = new Map<string, ClientEntry>();
 const TOOLS_CACHE_TTL_MS = 5 * 60 * 1000;
 
-async function getClient(): Promise<Client> {
-  if (_client) return _client;
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error("COMPOSIO_API_KEY is not set");
-  const url = process.env.COMPOSIO_MCP_URL || DEFAULT_COMPOSIO_MCP_URL;
+async function getClient(orgId: string): Promise<ClientEntry> {
+  const cached = _clientCache.get(orgId);
+  if (cached) return cached;
+  const resolved = await resolveOrgComposioKey(orgId);
+  if (!resolved) throw new Error("Composio not configured for this org");
+  const url = resolved.mcpUrl;
 
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: {
       headers: {
-        "x-consumer-api-key": apiKey,
+        "x-consumer-api-key": resolved.apiKey,
       },
     },
   });
@@ -76,25 +88,30 @@ async function getClient(): Promise<Client> {
     { capabilities: {} },
   );
   await client.connect(transport);
-  _client = client;
-  _transport = transport;
-  return client;
+  const entry: ClientEntry = {
+    client,
+    transport,
+    toolsCache: null,
+    toolsCacheAt: 0,
+  };
+  _clientCache.set(orgId, entry);
+  return entry;
 }
 
-async function resetClient() {
+async function resetClient(orgId: string) {
+  const entry = _clientCache.get(orgId);
+  if (!entry) return;
   try {
-    await _client?.close();
+    await entry.client.close();
   } catch {
     /* swallow */
   }
   try {
-    await _transport?.close();
+    await entry.transport.close();
   } catch {
     /* swallow */
   }
-  _client = null;
-  _transport = null;
-  _toolsCache = null;
+  _clientCache.delete(orgId);
 }
 
 type McpListedTool = {
@@ -218,52 +235,40 @@ function adaptMcpTools(client: Client, tools: McpListedTool[]): ToolSet {
  * object if Composio isn't configured — the chat still works with
  * platform-only tools in that case.
  */
-export async function getComposioTools(): Promise<ToolSet> {
-  if (!isComposioConfigured()) return {} as ToolSet;
+export async function getComposioTools(orgId: string): Promise<ToolSet> {
+  if (!(await isComposioConfigured(orgId))) return {} as ToolSet;
   const now = Date.now();
-  if (_toolsCache && now - _toolsCacheAt < TOOLS_CACHE_TTL_MS) {
-    return _toolsCache;
+  const cached = _clientCache.get(orgId);
+  if (cached?.toolsCache && now - cached.toolsCacheAt < TOOLS_CACHE_TTL_MS) {
+    return cached.toolsCache;
   }
   try {
-    const client = await getClient();
-    const listed = await client.listTools();
+    const entry = await getClient(orgId);
+    const listed = await entry.client.listTools();
     const rawTools = (listed.tools ?? []) as McpListedTool[];
 
-    // Composio's universal MCP endpoint can return either:
-    // (a) ~7 COMPOSIO_* meta-tools (preferred — supports per-call routing
-    //     via account param on MULTI_EXECUTE_TOOL), or
-    // (b) the entire 200+ static tool catalog (no per-call routing,
-    //     ~30K tokens of schema overhead per chat turn).
-    // Empirically, the response depends on the clientInfo.name sent
-    // during the MCP handshake (see getClient).
     const metaTools = rawTools.filter((t) => t.name.startsWith("COMPOSIO_"));
     const isMetaSurface = metaTools.length > 0 && metaTools.length === rawTools.length;
     const isCatalogSurface = !isMetaSurface && rawTools.length > 20;
-    // Apply our whitelist — drop the few meta-tools the chat doesn't
-    // need (workbench / bash / wait_for_connections) to keep tool-schema
-    // tokens well under 30K per turn.
     const enabledTools = metaTools.filter((t) => ENABLED_META_TOOLS.has(t.name));
 
     console.info(
-      `[composio] tools/list returned ${rawTools.length} tools. ` +
+      `[composio] org=${orgId} tools/list returned ${rawTools.length} tools. ` +
         `meta-tools: ${metaTools.length}. ` +
         `enabled (after whitelist): ${enabledTools.length}. ` +
         `surface: ${isMetaSurface ? "META (good)" : isCatalogSurface ? "CATALOG (bad)" : "MIXED/UNKNOWN"}`,
     );
-    console.info(`[composio] enabled tools:`, enabledTools.map((t) => t.name).join(", "));
 
-    const tools = adaptMcpTools(client, enabledTools);
-    _toolsCache = tools;
-    _toolsCacheAt = now;
+    const tools = adaptMcpTools(entry.client, enabledTools);
+    entry.toolsCache = tools;
+    entry.toolsCacheAt = now;
     return tools;
   } catch (err) {
     console.warn(
-      "[composio] MCP tools fetch failed:",
+      `[composio] org=${orgId} MCP tools fetch failed:`,
       (err as Error).message,
-      "\nstack:",
-      (err as Error).stack,
     );
-    await resetClient();
+    await resetClient(orgId);
     return {} as ToolSet;
   }
 }

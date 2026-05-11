@@ -77,6 +77,36 @@ export const orgLlmConfig = pgTable(
 );
 export type OrgLlmConfig = typeof orgLlmConfig.$inferSelect;
 
+/**
+ * Phase 8 v2 — per-org Composio consumer key.
+ *
+ * Each org has its own Composio account (separate from anyone else's),
+ * which means a separate consumer key. Stored here. Future v2 work
+ * will add `org_composio_routing` to let users opt connections in/out
+ * per org; for v2.0 MVP one key = all connections feed this org.
+ */
+export const orgComposioConfig = pgTable(
+  "org_composio_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .unique(),
+    apiKey: text("api_key").notNull(),
+    /**
+     * Optional MCP URL override. Composio's "universal MCP" lives at
+     * `connect.composio.dev/mcp` by default — most users don't need
+     * to change this.
+     */
+    mcpUrl: text("mcp_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("org_composio_config_org_idx").on(t.orgId)],
+);
+export type OrgComposioConfig = typeof orgComposioConfig.$inferSelect;
+
 export const spaces = pgTable(
   "spaces",
   {

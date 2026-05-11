@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   // Composio fetch is gated on COMPOSIO_API_KEY; resolves to {} otherwise so
   // the chat still works in a platform-only mode for setups without Composio.
   const platformTools = buildChatTools({ orgId, actorAgent: "claude-builtin" });
-  const composioTools = await getComposioTools();
+  const composioTools = await getComposioTools(orgId);
   const tools = { ...platformTools, ...composioTools };
 
   const composioHint = composioPromptHint();

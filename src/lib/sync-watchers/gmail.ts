@@ -101,6 +101,7 @@ export async function runGmailSync(args: {
       include_payload: false,
     },
     account: config.connectionId,
+    orgId,
   });
 
   if (!fetchResult.success) {

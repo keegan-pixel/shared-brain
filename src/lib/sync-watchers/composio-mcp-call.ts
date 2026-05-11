@@ -28,12 +28,27 @@ export async function executeComposioTool(args: {
   arguments: Record<string, unknown>;
   /** Composio connection ID (e.g. "gmail_berret-drinn") to route to. */
   account?: string;
+  /** Org whose Composio key should authenticate this call. Optional;
+   * falls back to env var if omitted (legacy single-user path). */
+  orgId?: string;
 }): Promise<ComposioToolResult> {
-  const apiKey = process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY;
-  if (!apiKey) {
-    return { success: false, error: "COMPOSIO_API_KEY (consumer key) is not set" };
+  let apiKey: string | undefined;
+  let url: string;
+  if (args.orgId) {
+    const { resolveOrgComposioKey } = await import("@/lib/composio-keys");
+    const resolved = await resolveOrgComposioKey(args.orgId);
+    if (!resolved) {
+      return { success: false, error: "Composio not configured for this org" };
+    }
+    apiKey = resolved.apiKey;
+    url = resolved.mcpUrl;
+  } else {
+    apiKey = process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY;
+    if (!apiKey) {
+      return { success: false, error: "COMPOSIO_API_KEY (consumer key) is not set" };
+    }
+    url = process.env.COMPOSIO_MCP_URL || DEFAULT_COMPOSIO_MCP_URL;
   }
-  const url = process.env.COMPOSIO_MCP_URL || DEFAULT_COMPOSIO_MCP_URL;
 
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: { headers: { "x-consumer-api-key": apiKey } },
