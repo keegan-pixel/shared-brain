@@ -112,11 +112,46 @@ export const POST = handle(async (req: NextRequest) => {
   const org = await ensureUserOrg();
   const debug = new URL(req.url).searchParams.get("debug") === "1";
 
-  // MANAGE_CONNECTIONS is a Composio meta-tool — must be called
-  // directly, NOT via MULTI_EXECUTE_TOOL (Composio rejects that).
+  // COMPOSIO_MANAGE_CONNECTIONS requires a `toolkits` field — empirically
+  // confirmed via the debug response Jake hit ("Required at toolkits").
+  // Passing a comprehensive list of all toolkits we know about; Composio
+  // will return connections for whichever the user actually has.
+  const COMMON_TOOLKITS = [
+    "gmail",
+    "googlecalendar",
+    "googledrive",
+    "notion",
+    "slack",
+    "hubspot",
+    "figma",
+    "linkedin",
+    "discord",
+    "quickbooks",
+    "granola",
+    "calendly",
+    "github",
+    "asana",
+    "linear",
+    "trello",
+    "airtable",
+    "salesforce",
+    "zoom",
+    "dropbox",
+    "onedrive",
+    "outlook",
+    "monday",
+    "clickup",
+    "todoist",
+    "evernote",
+    "twitter",
+    "instagram",
+    "facebook",
+    "tiktok",
+  ];
+
   const result = await callComposioToolDirect({
     toolSlug: "COMPOSIO_MANAGE_CONNECTIONS",
-    arguments: { action: "list" },
+    arguments: { toolkits: COMMON_TOOLKITS },
     orgId: org.id,
   });
 
