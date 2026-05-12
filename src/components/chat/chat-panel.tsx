@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { usePathname } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, Send, Square, Trash2, User } from "lucide-react";
+import { Bot, KeyRound, Send, Square, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet";
@@ -33,9 +34,42 @@ function deriveContext(pathname: string | null) {
   return { kind: kind as never, path: pathname, id };
 }
 
+/**
+ * Phase 8 v2 MVP — the chat panel is gated on an Anthropic key being
+ * configured for the user's org. Without it, hitting send would either
+ * 400 (good) or silently use Keegan's env-var key (bad, gets him
+ * billed for Jake's chat tokens). Render a CTA pointing at
+ * /settings/llm-keys instead.
+ */
+function useHasAnthropicKey(): { loading: boolean; hasKey: boolean } {
+  const [state, setState] = React.useState({ loading: true, hasKey: false });
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/orgs/llm-keys");
+        if (!res.ok) {
+          if (!cancelled) setState({ loading: false, hasKey: false });
+          return;
+        }
+        const data = (await res.json()) as { keys?: Array<{ provider: string }> };
+        const hasAnthropic = (data.keys ?? []).some((k) => k.provider === "anthropic");
+        if (!cancelled) setState({ loading: false, hasKey: hasAnthropic });
+      } catch {
+        if (!cancelled) setState({ loading: false, hasKey: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
 export function ChatPanel() {
   const { open, setOpen } = useChatPanel();
   const pathname = usePathname();
+  const { loading: keyLoading, hasKey } = useHasAnthropicKey();
 
   // Hydrate persisted messages on mount.
   const [initialMessages] = React.useState<UIMessage[]>(() => {
@@ -110,7 +144,13 @@ export function ChatPanel() {
 
       <SheetBody className="space-y-3">
         <div ref={scrollRef} className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
-          {messages.length === 0 ? (
+          {keyLoading ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              Loading…
+            </div>
+          ) : !hasKey ? (
+            <NoKeyState />
+          ) : messages.length === 0 ? (
             <EmptyState />
           ) : (
             messages.map((m) => <Message key={m.id} message={m} />)
@@ -130,16 +170,16 @@ export function ChatPanel() {
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Claude…"
+              placeholder={hasKey ? "Ask Claude…" : "Add an LLM API key first"}
               rows={2}
               className="resize-none"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleSend();
+                  if (hasKey) handleSend();
                 }
               }}
-              disabled={status === "streaming" || status === "submitted"}
+              disabled={!hasKey || status === "streaming" || status === "submitted"}
             />
             {status === "streaming" || status === "submitted" ? (
               <Button size="icon" variant="outline" onClick={() => stop()} aria-label="Stop">
@@ -149,7 +189,7 @@ export function ChatPanel() {
               <Button
                 size="icon"
                 onClick={handleSend}
-                disabled={!input.trim()}
+                disabled={!hasKey || !input.trim()}
                 aria-label="Send message"
               >
                 <Send className="h-4 w-4" />
@@ -182,8 +222,31 @@ function EmptyState() {
       <Bot className="h-8 w-8 text-[hsl(var(--muted-foreground))]/50" />
       <div className="font-medium">Claude is connected to your workspace.</div>
       <div className="max-w-72 leading-relaxed">
-        Try: <em>&ldquo;What&rsquo;s on my plate for XP Flow this week?&rdquo;</em> · <em>&ldquo;Move the Phase 5b task to in_progress.&rdquo;</em> · <em>&ldquo;Search my wiki for &lsquo;APEX&rsquo;.&rdquo;</em>
+        Try: <em>&ldquo;What&rsquo;s on my plate this week?&rdquo;</em> · <em>&ldquo;Move the Phase 5b task to in_progress.&rdquo;</em> · <em>&ldquo;Search my wiki for &lsquo;APEX&rsquo;.&rdquo;</em>
       </div>
+    </div>
+  );
+}
+
+function NoKeyState() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-xs">
+      <div className="rounded-full bg-amber-100 p-3 dark:bg-amber-900/30">
+        <KeyRound className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+      </div>
+      <div className="font-medium text-foreground">
+        Add an LLM API key to use chat
+      </div>
+      <div className="max-w-72 leading-relaxed text-muted-foreground">
+        The brain doesn&rsquo;t pay for chat tokens — you do. Paste an
+        Anthropic key and we&rsquo;ll unlock the chat panel.
+      </div>
+      <Link
+        href="/settings/llm-keys"
+        className="mt-1 inline-flex items-center rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+      >
+        Set up keys →
+      </Link>
     </div>
   );
 }
