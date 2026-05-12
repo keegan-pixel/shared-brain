@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Bot, Cable, KeyRound, RefreshCw } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { ensureUserOrg, requireUserId } from "@/lib/org";
 import { db } from "@/lib/db/client";
@@ -44,14 +46,42 @@ export default async function Home() {
       {isOnboarding && <OnboardingChecklist initial={onboarding} />}
 
       {!isOnboarding && (
-        <div className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-          <h2 className="font-medium">Spaces</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {orgSpaces.length === 0
-              ? "No spaces yet. Ask Claude to set them up: \"Set up my org with these spaces: ...\""
-              : `${orgSpaces.length} space${orgSpaces.length === 1 ? "" : "s"}.`}
-          </p>
-        </div>
+        <>
+          <div className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+            <h2 className="font-medium">Spaces</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {orgSpaces.length === 0
+                ? "No spaces yet. Ask Claude to set them up via your AXIS / lead agent."
+                : `${orgSpaces.length} space${orgSpaces.length === 1 ? "" : "s"}.`}
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+            <h2 className="font-medium">Quick links</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Setup is complete — keep these handy for tweaks, key rotations,
+              and re-running Claude&rsquo;s discovery interview when you add a
+              new context.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {[
+                { href: "/settings/claude", icon: Bot, label: "Claude setup + Project Instructions" },
+                { href: "/settings/connections", icon: Cable, label: "Composio key" },
+                { href: "/settings/llm-keys", icon: KeyRound, label: "LLM API keys" },
+                { href: "/settings/sync", icon: RefreshCw, label: "Sync settings (per-connection)" },
+              ].map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                >
+                  <item.icon className="h-4 w-4 text-zinc-500" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
