@@ -11,7 +11,7 @@
  * with their current mode + filters. Only new connections get inserted.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { syncConfigs } from "@/lib/db/schema";
@@ -47,8 +47,70 @@ function deriveLabel(c: ComposioConnection, toolkit: string): string {
   return c.id || c.connection_id || `${toolkit} connection`;
 }
 
-export const POST = handle(async () => {
+/**
+ * Walk a deeply-nested response from Composio's MULTI_EXECUTE wrapper
+ * to find the actual array of connections. The shape varies; the
+ * wrapper looks like:
+ *   { results: [{ tool_slug, success, data: { items: [...] }}] }
+ * or:
+ *   { data: [{ data: { items: [...] }}] }
+ * or sometimes:
+ *   { items: [...] }
+ *
+ * We search recursively for the first array of objects that looks
+ * like connection records (has `id` + `app`-ish fields).
+ */
+function findConnectionsArray(raw: unknown, depth = 0): ComposioConnection[] {
+  if (depth > 6) return [];
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    // Is this an array of connection-like objects?
+    const items = raw as Array<Record<string, unknown>>;
+    if (items.length === 0) return [];
+    const first = items[0];
+    if (
+      first &&
+      typeof first === "object" &&
+      (("id" in first) || ("connection_id" in first)) &&
+      (("app" in first) || ("toolkit" in first) || ("app_unique_key" in first))
+    ) {
+      return items as ComposioConnection[];
+    }
+    // Not connections — walk each entry to see if a child is.
+    for (const entry of items) {
+      const nested = findConnectionsArray(entry, depth + 1);
+      if (nested.length > 0) return nested;
+    }
+    return [];
+  }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    // Common-key shortcuts before recursing.
+    for (const key of [
+      "connections",
+      "connectedAccounts",
+      "accounts",
+      "items",
+      "data",
+      "results",
+    ]) {
+      if (key in obj) {
+        const found = findConnectionsArray(obj[key], depth + 1);
+        if (found.length > 0) return found;
+      }
+    }
+    // Generic walk.
+    for (const v of Object.values(obj)) {
+      const found = findConnectionsArray(v, depth + 1);
+      if (found.length > 0) return found;
+    }
+  }
+  return [];
+}
+
+export const POST = handle(async (req: NextRequest) => {
   const org = await ensureUserOrg();
+  const debug = new URL(req.url).searchParams.get("debug") === "1";
 
   // Ask Composio for the user's connections via the meta-tool surface.
   const result = await executeComposioTool({
@@ -67,20 +129,19 @@ export const POST = handle(async () => {
     );
   }
 
-  // Parse the connections list out of Composio's response. Their shape:
-  //   { connections: [...] } or { items: [...] } or just an array.
-  const raw = result.data as unknown;
-  let connections: ComposioConnection[] = [];
-  if (Array.isArray(raw)) {
-    connections = raw as ComposioConnection[];
-  } else if (raw && typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    const candidate =
-      (obj.connections as ComposioConnection[]) ||
-      (obj.items as ComposioConnection[]) ||
-      (obj.data as ComposioConnection[]) ||
-      [];
-    connections = Array.isArray(candidate) ? candidate : [];
+  const connections = findConnectionsArray(result.data);
+
+  if (debug) {
+    return NextResponse.json({
+      debug: true,
+      raw_top_level_keys:
+        result.data && typeof result.data === "object"
+          ? Object.keys(result.data as Record<string, unknown>)
+          : null,
+      raw_data: result.data,
+      parsed_count: connections.length,
+      first_parsed: connections[0] ?? null,
+    });
   }
 
   if (connections.length === 0) {
