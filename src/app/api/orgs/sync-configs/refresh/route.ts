@@ -38,74 +38,61 @@ type ComposioConnection = {
 };
 
 function deriveLabel(c: ComposioConnection, toolkit: string): string {
-  const email =
+  // For MANAGE_CONNECTIONS responses, we stash the account's `alias` in
+  // metadata.user_email so the same code path works.
+  const alias =
     c.metadata?.user_email ||
     c.metadata?.email ||
     c.metadata?.account_email ||
     c.user_email;
-  if (email) return `${toolkit} (${email})`;
-  return c.id || c.connection_id || `${toolkit} connection`;
+  if (alias) return `${toolkit} — ${alias}`;
+  return `${toolkit} (${c.id || c.connection_id || "unnamed"})`;
 }
 
 /**
- * Walk a deeply-nested response from Composio's MULTI_EXECUTE wrapper
- * to find the actual array of connections. The shape varies; the
- * wrapper looks like:
- *   { results: [{ tool_slug, success, data: { items: [...] }}] }
- * or:
- *   { data: [{ data: { items: [...] }}] }
- * or sometimes:
- *   { items: [...] }
+ * Parse Composio's MANAGE_CONNECTIONS response. Confirmed shape:
+ *   raw.data.results.<toolkit>.accounts[] = [
+ *     { id, alias?, status: "active" | "initializing" | "initiated", is_default }
+ *   ]
  *
- * We search recursively for the first array of objects that looks
- * like connection records (has `id` + `app`-ish fields).
+ * Only "active" accounts are real, working connections. The other
+ * statuses are pollution — MANAGE_CONNECTIONS auto-initiates new
+ * auth flows for toolkits in our query list that the user doesn't
+ * have, creating "initialized" entries with 10-min expiry. We
+ * filter those out.
  */
-function findConnectionsArray(raw: unknown, depth = 0): ComposioConnection[] {
-  if (depth > 6) return [];
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    // Is this an array of connection-like objects?
-    const items = raw as Array<Record<string, unknown>>;
-    if (items.length === 0) return [];
-    const first = items[0];
-    if (
-      first &&
-      typeof first === "object" &&
-      (("id" in first) || ("connection_id" in first)) &&
-      (("app" in first) || ("toolkit" in first) || ("app_unique_key" in first))
-    ) {
-      return items as ComposioConnection[];
-    }
-    // Not connections — walk each entry to see if a child is.
-    for (const entry of items) {
-      const nested = findConnectionsArray(entry, depth + 1);
-      if (nested.length > 0) return nested;
-    }
-    return [];
-  }
-  if (typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    // Common-key shortcuts before recursing.
-    for (const key of [
-      "connections",
-      "connectedAccounts",
-      "accounts",
-      "items",
-      "data",
-      "results",
-    ]) {
-      if (key in obj) {
-        const found = findConnectionsArray(obj[key], depth + 1);
-        if (found.length > 0) return found;
-      }
-    }
-    // Generic walk.
-    for (const v of Object.values(obj)) {
-      const found = findConnectionsArray(v, depth + 1);
-      if (found.length > 0) return found;
+function parseActiveConnections(raw: unknown): ComposioConnection[] {
+  if (!raw || typeof raw !== "object") return [];
+  const data = (raw as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return [];
+  const results = (data as { results?: unknown }).results;
+  if (!results || typeof results !== "object") return [];
+
+  const out: ComposioConnection[] = [];
+  for (const [toolkit, entryRaw] of Object.entries(results)) {
+    if (!entryRaw || typeof entryRaw !== "object") continue;
+    const entry = entryRaw as { accounts?: unknown };
+    const accounts = entry.accounts;
+    if (!Array.isArray(accounts)) continue;
+    for (const acctRaw of accounts) {
+      if (!acctRaw || typeof acctRaw !== "object") continue;
+      const acct = acctRaw as {
+        id?: string;
+        alias?: string;
+        status?: string;
+        is_default?: boolean;
+      };
+      if (acct.status !== "active") continue;
+      if (!acct.id) continue;
+      out.push({
+        id: acct.id,
+        toolkit,
+        // Use alias as the human label when available, else "{toolkit} ({id})".
+        metadata: acct.alias ? { user_email: acct.alias } : undefined,
+      });
     }
   }
-  return [];
+  return out;
 }
 
 export const POST = handle(async (req: NextRequest) => {
@@ -165,7 +152,7 @@ export const POST = handle(async (req: NextRequest) => {
     );
   }
 
-  const connections = findConnectionsArray(result.data);
+  const connections = parseActiveConnections(result.data);
 
   if (debug) {
     return NextResponse.json({
