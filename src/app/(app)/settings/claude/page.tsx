@@ -52,25 +52,43 @@ export default function ClaudeConnectPage() {
       </div>
 
       <div className="mt-6 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h3 className="font-medium">Project Instructions — recommended setup</h3>
+        <h3 className="font-medium">Project Instructions — full setup</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Create a Project in Claude Desktop named after your brain. Paste
-          the markdown below into the Project&rsquo;s Custom Instructions so
-          Claude knows what tools you have and how to use them. Includes a
-          one-time discovery interview Claude runs to set up your spaces
-          and projects conversationally.
+          New to Claude Projects? Use this. Create a Project in Claude
+          Desktop, paste this markdown into Custom Instructions. Includes a
+          first-run discovery interview Claude runs to set up your spaces
+          and projects conversationally via MCP primitives.
         </p>
         <div className="mt-3 flex items-center gap-2">
           <a
-            href="/api/orgs/claude-project-instructions"
+            href="/api/orgs/claude-project-instructions?format=full"
             download
             className="inline-flex items-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Download Project Instructions
+            Download full Project Instructions
+          </a>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h3 className="font-medium">Lead-agent patch — add to existing setup</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Already have a Claude Project or lead agent (Cowork, AXIS, XAOC,
+          a personal AI assistant, etc.)? Drop these few paragraphs into
+          your existing system prompt — they tell your agent what
+          shared-brain tools are available and when to reach for them.
+          No discovery interview, no rebuild.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <a
+            href="/api/orgs/claude-project-instructions?format=short"
+            download
+            className="inline-flex items-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900"
+          >
+            Download lead-agent patch
           </a>
           <span className="text-xs text-muted-foreground">
-            Personalized .md file; paste into Claude → your Project → Custom
-            Instructions.
+            Also works as a global Claude rule for cross-Project use.
           </span>
         </div>
       </div>

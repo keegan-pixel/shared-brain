@@ -64,6 +64,7 @@ const DEFAULT_API_BASE = "https://shared-brain-ecru.vercel.app";
 function parseArgs(argv: string[]): {
   apiKey?: string;
   vaultPath: string;
+  extraVaultPaths: string[];
   apiBase: string;
   agentDir: string;
   blobToken?: string;
@@ -76,6 +77,7 @@ function parseArgs(argv: string[]): {
   let apiKey: string | undefined =
     process.env.MCP_API_KEY || process.env.SHARED_BRAIN_API_KEY;
   let vaultPath = process.env.VAULT_PATH || join(homedir(), "Documents", "ViaOps");
+  const extraVaultPaths: string[] = [];
   let apiBase = process.env.SHARED_BRAIN_API_BASE || DEFAULT_API_BASE;
   // The agent dir is wherever this repo's `agent/` lives. Default: ../agent
   // relative to the script (scripts/install-daemon.ts → agent/).
@@ -93,6 +95,7 @@ function parseArgs(argv: string[]): {
     const a = args[i];
     if (a === "--api-key" && args[i + 1]) apiKey = args[++i];
     else if (a === "--vault-path" && args[i + 1]) vaultPath = args[++i];
+    else if (a === "--extra-vault-path" && args[i + 1]) extraVaultPaths.push(args[++i]);
     else if (a === "--api-base" && args[i + 1]) apiBase = args[++i];
     else if (a === "--agent-dir" && args[i + 1]) agentDir = args[++i];
     else if (a === "--blob-token" && args[i + 1]) blobToken = args[++i];
@@ -106,6 +109,7 @@ function parseArgs(argv: string[]): {
   return {
     apiKey,
     vaultPath,
+    extraVaultPaths,
     apiBase,
     agentDir,
     blobToken,
@@ -128,6 +132,7 @@ function buildPlist(opts: {
   apiBase: string;
   apiKey: string;
   vaultPath: string;
+  extraVaultPaths: string[];
   blobToken?: string;
   label: string;
   logPath: string;
@@ -142,6 +147,14 @@ function buildPlist(opts: {
     ? `
     <key>BLOB_READ_WRITE_TOKEN</key>
     <string>${escapeXml(opts.blobToken)}</string>`
+    : "";
+  // Multi-folder support: agent reads `EXTRA_VAULT_PATHS` as a colon-
+  // separated list. Daemon spins up an additional chokidar watcher per
+  // extra path.
+  const extraVaultBlock = opts.extraVaultPaths.length > 0
+    ? `
+    <key>EXTRA_VAULT_PATHS</key>
+    <string>${escapeXml(opts.extraVaultPaths.join(":"))}</string>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -167,7 +180,7 @@ function buildPlist(opts: {
     <key>MCP_API_KEY</key>
     <string>${escapeXml(opts.apiKey)}</string>
     <key>VAULT_PATH</key>
-    <string>${escapeXml(opts.vaultPath)}</string>${blobBlock}
+    <string>${escapeXml(opts.vaultPath)}</string>${extraVaultBlock}${blobBlock}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -261,6 +274,7 @@ async function main() {
     apiBase: opts.apiBase,
     apiKey: opts.apiKey,
     vaultPath: opts.vaultPath,
+    extraVaultPaths: opts.extraVaultPaths,
     blobToken: opts.blobToken,
     label,
     logPath,

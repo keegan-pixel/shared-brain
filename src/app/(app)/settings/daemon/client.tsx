@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Props = {
@@ -13,13 +14,30 @@ const APP_URL = "https://shared-brain-ecru.vercel.app";
 
 export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
   const [revealed, setRevealed] = React.useState(false);
-  const [vaultPath, setVaultPath] = React.useState("");
+  // Multi-folder support: user can add as many vault paths as they want.
+  // First one is the primary; additional paths get appended via --extra-vault-path
+  // (a flag the daemon parses into multiple watch targets).
+  const [vaultPaths, setVaultPaths] = React.useState<string[]>([""]);
+  const vaultPath = vaultPaths[0] ?? "";
+  const extraPaths = vaultPaths.slice(1).filter((p) => p.trim());
   const placeholder = vaultName
     ? `/Users/<you>/Documents/${vaultName}`
     : "/Users/<you>/Documents/MyVault";
 
+  const extraFlags = extraPaths.map((p) => `--extra-vault-path "${p}"`).join(" ");
   const installCommand = vaultPath
-    ? `cd ~ && git clone https://github.com/keegan-pixel/shared-brain.git && cd shared-brain && npm install && cd agent && npm install && cd .. && npm run install-daemon -- --user-tag "${userTag}" --vault-path "${vaultPath}" --api-key "${syncKey}" --api-base "${APP_URL}"`
+    ? [
+        // Check node exists + is v20+; bail with a friendly message if not.
+        `command -v node >/dev/null 2>&1 || { echo "Node not installed. Install with: brew install node"; exit 1; }`,
+        `node -e "process.exit(parseInt(process.versions.node.split('.')[0]) >= 20 ? 0 : 1)" || { echo "Node $(node --version) is too old; need v20+. Upgrade with: brew upgrade node"; exit 1; }`,
+        // Clone + install + register the daemon.
+        `cd ~`,
+        `git clone https://github.com/keegan-pixel/shared-brain.git 2>/dev/null || (cd shared-brain && git pull)`,
+        `cd shared-brain`,
+        `npm install`,
+        `(cd agent && npm install)`,
+        `npm run install-daemon -- --user-tag "${userTag}" --vault-path "${vaultPath}" ${extraFlags} --api-key "${syncKey}" --api-base "${APP_URL}"`,
+      ].join(" && \\\n  ")
     : "(Fill in your vault path below to generate the command)";
 
   const maskedKey = revealed
@@ -58,17 +76,61 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
       </div>
 
       <div className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h3 className="font-medium">2. Pick your vault folder</h3>
+        <h3 className="font-medium">2. Pick your vault folder(s)</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          The full path to the folder you want synced. The daemon watches
-          this folder + every subfolder.
+          Full absolute path(s) to folders you want synced. The daemon
+          watches each folder + every subfolder. Add multiple if your work
+          lives in more than one place.
         </p>
-        <input
-          className="mt-3 w-full rounded-md border border-zinc-200 bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground dark:border-zinc-800"
-          placeholder={placeholder}
-          value={vaultPath}
-          onChange={(e) => setVaultPath(e.target.value)}
-        />
+        {vaultPaths.length > 1 && (
+          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+            <strong>Note:</strong> for now the daemon watches the first folder
+            fully. Additional folders are passed through to the config and
+            will be live-watched in the next update (v2.1).
+          </p>
+        )}
+        <div className="mt-3 space-y-2">
+          {vaultPaths.map((path, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                className="flex-1 rounded-md border border-zinc-200 bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground dark:border-zinc-800"
+                placeholder={i === 0 ? placeholder : "/Users/<you>/Documents/AnotherFolder"}
+                value={path}
+                onChange={(e) => {
+                  const next = [...vaultPaths];
+                  next[i] = e.target.value;
+                  setVaultPaths(next);
+                }}
+              />
+              {vaultPaths.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setVaultPaths(vaultPaths.filter((_, j) => j !== i))}
+                  aria-label="Remove folder"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() => setVaultPaths([...vaultPaths, ""])}
+        >
+          <Plus className="h-3 w-3" /> Add another folder
+        </Button>
+        <p className="mt-3 text-xs text-muted-foreground">
+          <strong>Why typing?</strong> Web browsers can&rsquo;t open native
+          file pickers for security reasons — they only see files you
+          explicitly drag in, not folder paths. To find a folder&rsquo;s
+          absolute path: open Finder → right-click the folder → Get Info →
+          look for &ldquo;Where:&rdquo; → copy that line. Or in Terminal:
+          <code className="ml-1 rounded bg-muted px-1">cd /path/to/folder && pwd</code>.
+        </p>
       </div>
 
       <div className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">

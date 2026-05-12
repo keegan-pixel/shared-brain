@@ -142,9 +142,15 @@ export function ConnectionsClient({ initial }: { initial: State }) {
                   app.composio.dev
                 </a>
               </li>
-              <li>Connect the services you want (Gmail, Drive, Calendar, etc.)</li>
-              <li>Open Settings → API Keys → copy your consumer key (starts with <code>ck_</code>)</li>
-              <li>Paste it above</li>
+              <li>Connect the services you want (Gmail, Drive, Calendar, Notion, etc.)</li>
+              <li>
+                Open <strong>Settings → API Keys</strong>. Look for a key that
+                starts with <code>ck_</code> — that&rsquo;s your consumer key.
+                (Don&rsquo;t use a key starting with anything else like{" "}
+                <code>cak_</code> or <code>sk_</code> — those are different
+                token types.)
+              </li>
+              <li>Copy the full key and paste it above</li>
             </ol>
           </div>
         )}

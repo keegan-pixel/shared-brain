@@ -28,6 +28,67 @@ type RenderArgs = {
   mcpUrl: string;
 };
 
+/**
+ * Short lead-agent patch — for users who already have a Claude Project
+ * / lead agent set up (e.g. Jake's AXIS). They don't need the full
+ * Project Instructions doc; they just need a few paragraphs to drop
+ * into their existing system prompt so the lead agent knows about
+ * the shared-brain MCP tools.
+ *
+ * Stays primitives-only per ADR-033 — describes tools + when to use
+ * them, no recipes.
+ */
+export function renderLeadAgentPatch(args: { orgName: string; mcpUrl: string }): string {
+  return `## Shared Brain — knowledge layer (added ${new Date().toISOString().slice(0, 10)})
+
+You're now connected to **Shared Brain** at ${args.mcpUrl} — a vault-
+mirrored knowledge platform with these MCP tools. Use them as your
+PRIMARY source for any "find / pull up / what's in / where is" query
+about the user's filed content (notes, contracts, contacts, meetings,
+projects). The brain is up-to-date; default to it over local-file
+tools when both are available.
+
+**Read tools (most common first):**
+- \`search\` — semantic + text search across the user's brain. Returns
+  id/title/snippet plus tappable \`view_url\` / \`download_url\` /
+  \`preview_url\`. Use this for ANY find/pull-up request. The URLs are
+  for the user to tap; do NOT try to fetch them server-side (they're
+  Clerk-auth'd and you'll get the login page).
+- \`get_document\` — full extracted text by id or title match. Use AFTER
+  \`search\` finds a candidate, when you need to actually read/summarize.
+  Returns the F2-extracted body for binary files (PDF/DOCX/XLSX).
+- \`get_document_url\` — URL-only variant for "send me X" / "open X"
+  where reading the body wastes tokens.
+- \`get_active_state\` — every space/project with non-completed items +
+  related entities. Best single tool for "what should I focus on" or
+  "what's on my plate."
+- \`get_operating_instructions\` — pulls org-level standing rules. Call
+  at session start if context feels stale.
+
+**Write tools:**
+- \`create_space\`, \`create_project\`, \`create_item\` — entity writers.
+- \`create_wiki_page\` / \`update_wiki_page\` — prose pages.
+- \`file_document\` — file new content (meeting transcripts, emails,
+  filed-from-Composio docs) into the vault at a target path.
+- \`record_session_summary\` — call at significant session end. 2-3
+  sentence summary + related items. How the brain stays current.
+
+**Behavior:**
+- URLs from the brain are TAPPABLE, not fetchable. Surface them in
+  your reply text; let the user tap.
+- Don't tool-chain past the answer. If \`search\` returns a single
+  high-confidence match, surface it and stop. Don't search again with
+  different terms, don't fall through to Composio for vault content.
+- End significant sessions with \`record_session_summary\`.
+
+For full setup including the first-run discovery interview, see the
+long-form Project Instructions at
+\`${args.mcpUrl.replace("/api/mcp", "/settings/claude")}\` — but if
+you've got an existing agent architecture, these paragraphs are
+enough to wire shared-brain in.
+`;
+}
+
 export async function renderClaudeProjectInstructions(args: RenderArgs): Promise<string> {
   // Best-effort: pull the user's Profile.md content from their wiki
   // (the wiki page titled "Profile" — same path that
