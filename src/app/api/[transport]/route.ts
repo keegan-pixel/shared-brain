@@ -1,5 +1,6 @@
 import { createMcpHandler } from "mcp-handler";
 import { resolveOrgContext } from "@/lib/mcp/context";
+import { runWithRequestContext } from "@/lib/mcp/request-context";
 import { registerTools } from "@/lib/mcp/tools";
 import { db } from "@/lib/db/client";
 import { mcpRequestLog, type McpRequestStatus } from "@/lib/db/schema";
@@ -45,7 +46,9 @@ async function logMcpRequest(args: {
  * resolved userId to scope data per-user; v1 still operates on the
  * single-org context.
  */
-async function checkAuth(req: Request): Promise<{ ok: true } | { ok: false; res: Response }> {
+async function checkAuth(
+  req: Request,
+): Promise<{ ok: true; userId: string | null } | { ok: false; res: Response }> {
   const expected = process.env.MCP_API_KEY;
   const authHeader = req.headers.get("authorization") ?? "";
   const presented = authHeader.toLowerCase().startsWith("bearer ")
@@ -77,15 +80,16 @@ async function checkAuth(req: Request): Promise<{ ok: true } | { ok: false; res:
     };
   }
 
-  // Path 1: static API key match.
+  // Path 1: static API key match. No per-user identity — legacy.
   if (expected && presented === expected) {
-    return { ok: true };
+    return { ok: true, userId: null };
   }
 
-  // Path 2: OAuth-issued access token.
+  // Path 2: OAuth-issued access token. Returns the validated user id
+  // so we can scope MCP context per-user.
   if (presented.startsWith("sb_at_")) {
     const validated = await validateAccessToken(presented);
-    if (validated) return { ok: true };
+    if (validated) return { ok: true, userId: validated.userId };
   }
 
   return {
@@ -128,7 +132,14 @@ async function handler(req: Request) {
     return auth.res;
   }
   try {
-    const res = await mcp(req);
+    // Thread the OAuth user id through AsyncLocalStorage so the
+    // setup callback (which mcp-handler invokes per-request) can
+    // resolve the correct org via resolveOrgContext. Legacy
+    // MCP_API_KEY auth → userId is null → resolveOrgContext falls
+    // back to env / first org (Keegan's daemon behavior unchanged).
+    const res = await runWithRequestContext({ userId: auth.userId }, () =>
+      mcp(req),
+    );
     void logMcpRequest({
       req,
       status: res.ok ? "ok" : "error",
