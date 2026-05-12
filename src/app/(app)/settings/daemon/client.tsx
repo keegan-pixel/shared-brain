@@ -26,6 +26,10 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
     : "/Users/<you>/Documents/MyVault";
 
   const extraFlags = extraPaths.map((p) => `--extra-vault-path "${p}"`).join(" ");
+  // Forward vault name if set so the daemon can emit Obsidian deep-links
+  // pointing at the user's vault (not Keegan's hardcoded "ViaOps"). See
+  // ADR-038 / Jake's post-mortem MF-5.
+  const vaultNameFlag = vaultName ? `--vault-name "${vaultName}"` : "";
   const installCommand = vaultPath
     ? [
         // Check node exists + is v20+; bail with a friendly message if not.
@@ -37,7 +41,15 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
         `cd shared-brain`,
         `npm install`,
         `(cd agent && npm install)`,
-        `npm run install-daemon -- --user-tag "${userTag}" --vault-path "${vaultPath}" ${extraFlags} --api-key "${syncKey}" --api-base "${APP_URL}"`,
+        [
+          `npm run install-daemon --`,
+          `--user-tag "${userTag}"`,
+          `--vault-path "${vaultPath}"`,
+          extraFlags,
+          vaultNameFlag,
+          `--api-key "${syncKey}"`,
+          `--api-base "${APP_URL}"`,
+        ].filter(Boolean).join(" "),
       ].join(" && \\\n  ")
     : "(Fill in your vault path below to generate the command)";
 

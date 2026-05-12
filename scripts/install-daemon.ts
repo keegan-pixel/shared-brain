@@ -54,6 +54,10 @@ function errPathFor(userTag: string, isExplicit: boolean): string {
 function sanitizeUserTag(input: string): string {
   return input
     .toLowerCase()
+    // Strip possessive 's BEFORE punctuation replacement to avoid
+    // "jake-leskovar-s-brain" — strip the apostrophe-s entirely.
+    .replace(/'s\b/g, "")
+    .replace(/['’]/g, "")
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || "user";
@@ -69,6 +73,7 @@ function parseArgs(argv: string[]): {
   agentDir: string;
   blobToken?: string;
   syncInclude: string;
+  vaultName?: string;
   userTag: string;
   userTagExplicit: boolean;
   uninstall: boolean;
@@ -95,6 +100,11 @@ function parseArgs(argv: string[]): {
   // working without changes.
   let userTag = process.env.SHARED_BRAIN_USER_TAG || "viaops";
   let userTagExplicit = !!process.env.SHARED_BRAIN_USER_TAG;
+  // Obsidian vault name for deep-link generation in synthetic wiki bodies.
+  // Without it, sync.ts skips the `obsidian://open?vault=...` link instead
+  // of hardcoding "ViaOps" (which was a Keegan-specific assumption — see
+  // ADR-038 / Jake's post-mortem MF-5).
+  let vaultName: string | undefined = process.env.OBSIDIAN_VAULT_NAME;
   let uninstall = false;
   let dryRun = false;
   for (let i = 0; i < args.length; i++) {
@@ -106,6 +116,7 @@ function parseArgs(argv: string[]): {
     else if (a === "--api-base" && args[i + 1]) apiBase = args[++i];
     else if (a === "--agent-dir" && args[i + 1]) agentDir = args[++i];
     else if (a === "--blob-token" && args[i + 1]) blobToken = args[++i];
+    else if (a === "--vault-name" && args[i + 1]) vaultName = args[++i];
     else if (a === "--user-tag" && args[i + 1]) {
       userTag = args[++i];
       userTagExplicit = true;
@@ -121,6 +132,7 @@ function parseArgs(argv: string[]): {
     agentDir,
     blobToken,
     syncInclude,
+    vaultName: vaultName?.trim() || undefined,
     userTag: sanitizeUserTag(userTag),
     userTagExplicit,
     uninstall,
@@ -143,6 +155,7 @@ function buildPlist(opts: {
   extraVaultPaths: string[];
   syncInclude: string;
   blobToken?: string;
+  vaultName?: string;
   label: string;
   logPath: string;
   errPath: string;
@@ -164,6 +177,15 @@ function buildPlist(opts: {
     ? `
     <key>EXTRA_VAULT_PATHS</key>
     <string>${escapeXml(opts.extraVaultPaths.join(":"))}</string>`
+    : "";
+  // Obsidian vault name (optional). When set, sync.ts writes
+  // `obsidian://open?vault=<name>&file=...` deep links into synthetic
+  // wiki bodies. When omitted, links are skipped (no broken `vault=ViaOps`
+  // links for users who don't use Obsidian or use a different vault name).
+  const vaultNameBlock = opts.vaultName
+    ? `
+    <key>OBSIDIAN_VAULT_NAME</key>
+    <string>${escapeXml(opts.vaultName)}</string>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -191,7 +213,7 @@ function buildPlist(opts: {
     <key>VAULT_PATH</key>
     <string>${escapeXml(opts.vaultPath)}</string>
     <key>SYNC_INCLUDE</key>
-    <string>${escapeXml(opts.syncInclude)}</string>${extraVaultBlock}${blobBlock}
+    <string>${escapeXml(opts.syncInclude)}</string>${extraVaultBlock}${vaultNameBlock}${blobBlock}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -288,6 +310,7 @@ async function main() {
     extraVaultPaths: opts.extraVaultPaths,
     syncInclude: opts.syncInclude,
     blobToken: opts.blobToken,
+    vaultName: opts.vaultName,
     label,
     logPath,
     errPath,

@@ -258,6 +258,43 @@ If the user doesn't keep work docs on their Mac:
   user can dismiss it (manual; no UI for that yet) or leave it
   unchecked as a sign of "skipped, intentional"
 
+### Pre-install checklist — added 2026-05-12 after Jake's install
+
+Run these the night before any new user install (lessons from
+Jake's install — see `docs/post-mortem-2026-05-12.md`):
+
+1. **Keegan-hardcode audit** (ADR-038 Rule 1):
+   ```bash
+   grep -rE "ViaOps|viaops|keegan@viaops|/Users/keeganlamar" src agent --include="*.ts" --include="*.tsx"
+   ```
+   Any hits in user-scoped code paths → fix before the call.
+2. **Fresh-account dogfood** (ADR-038 Rule 4): sign up with a
+   throwaway account on production. Walk every step. Note new
+   friction.
+3. **Vercel deploy clean** on `https://shared-brain-ecru.vercel.app/`.
+4. **Repo public** (or user added as collaborator) so the daemon
+   install `git clone` works without auth.
+5. **DCR endpoint healthy:** `curl -sS https://shared-brain-ecru.vercel.app/api/register -X POST -H 'content-type: application/json' -d '{}'` returns a 4xx with structured error.
+
+### Known onboarding quirks (catch proactively)
+
+| Quirk | Workaround / explanation |
+|---|---|
+| `/settings/sync` initially empty | Click "Fetch connections" — calls Composio MANAGE_CONNECTIONS, seeds rows. Amber warning about 10-min auth-link pollution is expected. |
+| Daemon "connected" indicator lags ~30s | Auto-detect is non-instant. User can hit "Mark as done" manually. |
+| Onboarding checklist disappears after completion | "Quick links" card on dashboard has paths back to `/settings/claude` for Project Instructions. |
+| Composio dashboard briefly shows extra "Connect [toolkit]" entries | MANAGE_CONNECTIONS side effect; entries expire in 10 min. UI warns about this. |
+| Custom Connector setup needs DCR | Handled — `/api/register` is live. Confirm via pre-install #5. |
+
+### Post-install (within 24 hours)
+
+1. Append a section to `docs/post-mortem-2026-05-12.md` capturing
+   what hit. New patterns → update ADR-038 + Profile.md discipline
+   rules.
+2. Re-run the Keegan-hardcode audit to confirm nothing regressed.
+3. Send the user the runbook URL so they can self-serve common
+   questions.
+
 ### Org renaming after install
 
 User can rename at `/settings/org`. Slug stays stable on rename so

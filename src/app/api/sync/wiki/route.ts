@@ -23,10 +23,24 @@ const Schema = z.object({
 });
 
 /**
- * Map a vault file path to the space it belongs to so the activity feed's
- * space filter (which checks metadata.spaceId) can scope synced wiki
- * pages correctly. Returns null for cross-cutting / global content like
- * `Knowledge/`, `Pipeline/`, `Meetings/` (top-level), `Dashboard/`, etc.
+ * Map a vault file path to the space it belongs to.
+ *
+ * Phase 8 v2 MVP (post-Jake post-mortem): looks up by first-segment
+ * match against EXISTING space names in the user's org. No longer
+ * hardcoded to "Clients/", "SimHouse.io/", "Coaching/" — that was
+ * the Keegan-specific assumption that caused Jake's files to land
+ * with no space association.
+ *
+ * Per ADR-026, spaces are a Claude-driven concept. If the user (or
+ * Claude on the user's behalf) has created a space named "XP Flow",
+ * and a file is synced at path `XP Flow/proposal.md`, this finds
+ * the match and associates the file. If no space matches, the file
+ * lives as an unassociated wiki entry — that's fine.
+ *
+ * Trade-off: requires the space to be created BEFORE files for that
+ * space are synced. The natural flow is: install → daemon syncs flat
+ * → user/Claude creates spaces → future syncs auto-associate. Past
+ * syncs need backfill (deferred).
  */
 async function deriveSpaceIdFromPath(
   orgId: string,
@@ -34,17 +48,28 @@ async function deriveSpaceIdFromPath(
 ): Promise<string | null> {
   const segs = filePath.split("/");
   if (segs.length < 2) return null;
-  let spaceName: string | null = null;
-  if (segs[0] === "Clients") spaceName = segs[1];
-  else if (segs[0] === "SimHouse.io") spaceName = "SimHouse.io";
-  else if (segs[0] === "Coaching") spaceName = "Coaching";
-  if (!spaceName) return null;
+  const candidateSpaceName = segs[0];
+  // Skip obvious non-space prefixes.
+  if (candidateSpaceName.startsWith(".") || candidateSpaceName === "node_modules") {
+    return null;
+  }
   const [row] = await db
     .select({ id: spaces.id })
     .from(spaces)
-    .where(and(eq(spaces.orgId, orgId), eq(spaces.name, spaceName)))
+    .where(and(eq(spaces.orgId, orgId), eq(spaces.name, candidateSpaceName)))
     .limit(1);
-  return row?.id ?? null;
+  if (row) return row.id;
+  // Try second segment for "Clients/XP Flow/..." style nesting where
+  // the user keeps a flat "Clients" container with named subspaces.
+  if (segs.length >= 3 && candidateSpaceName === "Clients") {
+    const [nested] = await db
+      .select({ id: spaces.id })
+      .from(spaces)
+      .where(and(eq(spaces.orgId, orgId), eq(spaces.name, segs[1])))
+      .limit(1);
+    if (nested) return nested.id;
+  }
+  return null;
 }
 
 /**

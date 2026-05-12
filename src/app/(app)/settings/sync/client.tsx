@@ -117,22 +117,33 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-        <div>
-          <h3 className="text-sm font-medium">Pull connections from Composio</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {configs.length === 0
-              ? "No connections set up yet. Click to fetch your Composio-connected accounts and seed this list."
-              : "Re-fetch to pick up any new connections you've added on Composio's side since last refresh."}
-          </p>
+      <div className="rounded-lg border border-border bg-card px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">Pull connections from Composio</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {configs.length === 0
+                ? "No connections set up yet. Click to fetch your Composio-connected accounts and seed this list."
+                : "Re-fetch to pick up any new connections you've added on Composio's side since last refresh."}
+            </p>
+          </div>
+          <Button
+            onClick={refreshFromComposio}
+            disabled={refreshing}
+            variant={configs.length === 0 ? "default" : "outline"}
+          >
+            {refreshing ? "Fetching..." : configs.length === 0 ? "Fetch connections" : "Refresh"}
+          </Button>
         </div>
-        <Button
-          onClick={refreshFromComposio}
-          disabled={refreshing}
-          variant={configs.length === 0 ? "default" : "outline"}
-        >
-          {refreshing ? "Fetching..." : configs.length === 0 ? "Fetch connections" : "Refresh"}
-        </Button>
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          <strong>Heads up:</strong> Composio&rsquo;s MANAGE_CONNECTIONS
+          meta-tool creates short-lived (10-min expiry) auth links for
+          toolkits we ask about that you don&rsquo;t have connected.
+          You might see a few extra &ldquo;Connect [toolkit]&rdquo; entries
+          appear briefly in your Composio dashboard — those expire on their
+          own and don&rsquo;t affect your real connections. Only the
+          connections you ACTUALLY have show up below.
+        </p>
       </div>
 
       <div className="rounded-lg border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">

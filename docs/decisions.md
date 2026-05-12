@@ -20,6 +20,104 @@ Newest at the top.
 
 ---
 
+## ADR-038 — Multi-tenant discipline: the "Keegan-as-only-test-user trap" and how to avoid it
+
+**Date:** 2026-05-12
+**Context:** Phase 8 v2 MVP shipped 2026-05-11; Jake Leskovar's
+install Tuesday 2026-05-12 was the first real multi-tenant test.
+Sixteen bugs hit live during the install. Eight of them shared the
+same root cause class: code that hardcoded Keegan-specific
+assumptions because Keegan was the only test user.
+
+Full per-bug post-mortem at
+[[Post-Mortem 2026-05-12 Jake's Install]].
+
+**Decision:** Codify discipline rules that prevent the same class
+of bug from shipping again. These become standing rules in
+`Profile.md` (§4) and the Runbook (§"Onboarding a new user").
+
+### Rule 1 — Keegan-hardcode audit before "ready for new users"
+
+Before shipping any feature that touches user-scoped data, run the
+following audit. Any hits get reviewed:
+
+```bash
+grep -rE "ViaOps|viaops|keegan@viaops|/Users/keeganlamar" src agent --include="*.ts" --include="*.tsx"
+```
+
+Manual checks:
+- Default folder names hardcoded that aren't user-configurable?
+- Module-level caches that don't reset per user?
+- Env-var fallbacks that lean on Keegan-specific values?
+- Composio connection IDs anywhere in code?
+- System-prompt / chat-prompt text that mentions Keegan / his
+  businesses by name?
+
+If any found: generalize, surface as user config, or scope per-user
+via AsyncLocalStorage / per-request context.
+
+### Rule 2 — No "deferred" items that touch trust or data isolation
+
+When labeling an MVP scope item as "deferred — not blocking":
+- If it touches multi-tenant data isolation → it IS blocking.
+- If it touches authentication / authorization scoping → IS blocking.
+- If it touches per-user credentials / API keys → IS blocking.
+
+Bug #16 (per-user MCP context) was explicitly deferred in ADR-037.
+The deferral said it was "not blocking — single org" — but the
+moment a second user signed up, it became a data isolation breach.
+**Trust-path items are never deferrable.**
+
+### Rule 3 — External-API integration: debug mode first
+
+For Composio, Granola, future GPT/Gemini integrations:
+- Ship a `?debug=1` endpoint variant that returns the raw API
+  response shape.
+- Use real data to confirm the shape BEFORE writing the parser.
+- Document the confirmed shape in code comments next to the parser.
+
+This saves the "ship parser → wrong shape → debug → reship → wrong
+→ debug" loop we hit with Composio MANAGE_CONNECTIONS (3 sequential
+fixes #17, #18, #19 before the parser matched reality).
+
+### Rule 4 — Dogfood every onboarding path on a fresh account
+
+Even with a real user lined up: the fresh-account-FROM-SCRATCH walk
+is its own thing. Sign up with a throwaway account on production
+the day before the real install. Walk every step. Note every
+friction. Don't assume.
+
+If a real user is doing the dogfood: pair live, watch every step,
+catch friction in real time. Jake's friction WAS our dogfood for
+Richard — and that worked because the deploy → fix → redeploy loop
+is fast. But ideally the real user shouldn't be the dogfood.
+
+### Rule 5 — Every install gets an immediate post-mortem
+
+After every new user install (until they're so smooth they're
+boring), append a section to
+[[Post-Mortem 2026-05-12 Jake's Install]] (or write a new
+post-mortem) capturing what hit. If a new failure-mode pattern
+emerges, add it to the discipline rules here.
+
+### Why these matter
+
+Without rule #1, future ViaOps clients (Richard Thursday, more
+users next month) will hit the same papercut bugs Jake hit. Without
+rule #2, future MVPs will leak data again. Without rules #3-#5,
+we'll keep paying the same cost per install.
+
+The deeper principle: **multi-tenancy is a discipline, not a
+feature**. You don't "add multi-tenancy" once and forget. Every
+new line of code that touches user-scoped data needs the
+audit above.
+
+**Related:** [[Post-Mortem 2026-05-12 Jake's Install]] (full bug
+log), ADR-037 (the MVP scope that this corrects), ADR-026 (the
+brain-as-connectivity-layer thesis these rules protect).
+
+---
+
 ## ADR-037 — Phase 8 v2 MVP: per-org isolation as the smallest viable multi-tenancy
 
 **Date:** 2026-05-11

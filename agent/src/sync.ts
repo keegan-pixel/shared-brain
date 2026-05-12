@@ -109,9 +109,18 @@ export async function syncOne(
         // 3. Build the synthetic wiki body. Includes file metadata plus a
         //    short snippet of the extracted text so the page itself is
         //    glanceable in the wiki tree.
-        const obsidianHref = `obsidian://open?vault=ViaOps&file=${encodeURIComponent(
-          relative.replace(/\.[^.]+$/, ""),
-        )}`;
+        // Obsidian deep-link is optional. We only emit it when
+        // OBSIDIAN_VAULT_NAME is set (install-daemon.ts plumbs it in
+        // from the user's /settings/org config). Otherwise the link
+        // would point to a non-existent vault for any user whose
+        // Obsidian vault name doesn't happen to be "ViaOps" — see
+        // ADR-038 / Jake's post-mortem MF-5.
+        const obsidianVault = process.env.OBSIDIAN_VAULT_NAME?.trim();
+        const obsidianHref = obsidianVault
+          ? `obsidian://open?vault=${encodeURIComponent(obsidianVault)}&file=${encodeURIComponent(
+              relative.replace(/\.[^.]+$/, ""),
+            )}`
+          : null;
         const indexedNote = extracted.text
           ? `_Indexed for semantic search — ${extracted.wordCount.toLocaleString()} words extracted._`
           : extracted.skipReason
@@ -132,7 +141,16 @@ export async function syncOne(
           stat ? `- **Modified:** ${stat.mtime.toISOString()}` : null,
           blobUrl ? `- **Stored in Shared Brain:** ✅` : null,
           "",
-          blobUrl ? `[Download](${blobUrl}) · [Open in Obsidian](${obsidianHref})` : `[Open in Obsidian](${obsidianHref})`,
+          // Build the action-link line: Download (if blob), Open in
+          // Obsidian (if vault name configured). Skip the whole line if
+          // neither is available.
+          blobUrl && obsidianHref
+            ? `[Download](${blobUrl}) · [Open in Obsidian](${obsidianHref})`
+            : blobUrl
+              ? `[Download](${blobUrl})`
+              : obsidianHref
+                ? `[Open in Obsidian](${obsidianHref})`
+                : null,
           "",
           indexedNote,
           snippet,

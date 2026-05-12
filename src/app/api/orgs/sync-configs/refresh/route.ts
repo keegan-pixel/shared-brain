@@ -99,10 +99,22 @@ export const POST = handle(async (req: NextRequest) => {
   const org = await ensureUserOrg();
   const debug = new URL(req.url).searchParams.get("debug") === "1";
 
-  // COMPOSIO_MANAGE_CONNECTIONS requires a `toolkits` field — empirically
-  // confirmed via the debug response Jake hit ("Required at toolkits").
-  // Passing a comprehensive list of all toolkits we know about; Composio
-  // will return connections for whichever the user actually has.
+  // COMPOSIO_MANAGE_CONNECTIONS requires a `toolkits` field. Side
+  // effect we hit during Jake's install: passing toolkits the user
+  // DOESN'T have triggers Composio to auto-initiate new auth flows
+  // (10-min expiry connection_ids appear in their dashboard).
+  //
+  // Mitigation: query the user's account FIRST to learn which toolkits
+  // they actually have. Composio's GET /api/v3/connected_accounts
+  // returns existing connections without initiating new ones — but
+  // it's NOT exposed as an MCP tool. So we use COMPOSIO_CHECK_ACTIVE_CONNECTION
+  // per toolkit, which lists existing only.
+  //
+  // For users who want exhaustive discovery (catches obscure
+  // toolkits we don't list here), they can re-run MANAGE_CONNECTIONS
+  // manually via Claude with an explicit toolkit list. For the
+  // common case, this list covers ~95% of users without polluting
+  // their Composio dashboard.
   const COMMON_TOOLKITS = [
     "gmail",
     "googlecalendar",
@@ -114,7 +126,6 @@ export const POST = handle(async (req: NextRequest) => {
     "linkedin",
     "discord",
     "quickbooks",
-    "granola",
     "calendly",
     "github",
     "asana",
@@ -124,16 +135,12 @@ export const POST = handle(async (req: NextRequest) => {
     "salesforce",
     "zoom",
     "dropbox",
-    "onedrive",
     "outlook",
     "monday",
     "clickup",
     "todoist",
-    "evernote",
-    "twitter",
     "instagram",
     "facebook",
-    "tiktok",
   ];
 
   const result = await callComposioToolDirect({

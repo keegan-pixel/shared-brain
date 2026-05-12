@@ -78,7 +78,7 @@ export function OrgSettingsClient({ initial }: Props) {
         <Input
           value={vaultName}
           onChange={(e) => setVaultName(e.target.value)}
-          placeholder="e.g. ViaOps"
+          placeholder="e.g. MyVault"
           maxLength={120}
         />
       </Field>

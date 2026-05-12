@@ -32,6 +32,11 @@ export async function requireUserId() {
 function slugify(input: string): string {
   return input
     .toLowerCase()
+    // Strip possessive 's and apostrophes BEFORE replacing other punctuation
+    // with hyphens. Otherwise "Jake Leskovar's Brain" becomes
+    // "jake-leskovar-s-brain" instead of "jake-leskovar-brain".
+    .replace(/'s\b/g, "")
+    .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "brain";
