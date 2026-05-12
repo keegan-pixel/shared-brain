@@ -717,7 +717,28 @@ To uninstall: `npm run install-daemon -- --uninstall`.
 
 ## Rotating secrets
 
-### MCP_API_KEY
+### Per-org sync key (Phase 8 v2 MVP, ADR-037)
+
+Each org has its own `organizations.mcp_api_key`. The daemon uses this
+to authenticate against `/api/sync/*`. To rotate:
+
+```ts
+// Programmatic — call from a script or DB query
+import { rotateSyncKey } from "@/lib/org";
+const newKey = await rotateSyncKey(orgId);
+// Daemon plist needs the new key written + reloaded
+```
+
+After rotating: the user updates their daemon plist with the new key
+and runs `launchctl bootout + bootstrap` (or re-runs `npm run install-daemon`
+with the new key). UI for self-serve rotation is parked in Phase 8 v2 v2.1.
+
+### MCP_API_KEY (legacy / Keegan only)
+
+`MCP_API_KEY` env var is the LEGACY fallback for sync auth — it still
+works for Keegan's pre-v2 daemon (which writes the env value into its
+plist). New users don't use this; they use their per-org sync key via
+the UI at `/settings/daemon`.
 
 #### Easy way (one command)
 
@@ -733,14 +754,18 @@ The script:
    migrated to OAuth on 2026-05-08 (ADR-035) and no longer has a
    `shared-brain` entry in `claude_desktop_config.json`.
 4. Updates the launchd daemon plist (`MCP_API_KEY` env var; backup made)
-   and reloads the daemon via `launchctl bootout + bootstrap` so the
-   running watcher picks up the new value
+   and reloads the daemon via `launchctl bootout + bootstrap`
 5. Copies the new key to your clipboard for Vercel
 6. Prints a short checklist of remaining manual steps (Vercel env var only)
 
-After Desktop's OAuth migration, `MCP_API_KEY` is only used by the
-local sync agent, Vercel Cron, and backfill scripts. Rotating it does
-NOT affect any AI client connections.
+After Desktop's OAuth migration AND per-org sync keys (ADR-037),
+`MCP_API_KEY` is only used by:
+- Keegan's legacy daemon (the env-var → first-org fallback in requireSyncAuth)
+- Vercel Cron secret authentication
+- Backfill / maintenance scripts
+
+It does NOT affect any AI client connections, and new users' daemons
+don't use it at all.
 
 Use `--dry-run` to preview what would change without writing.
 
