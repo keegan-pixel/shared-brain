@@ -92,9 +92,9 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
 
       <ul className="space-y-3">
         {effective.map((step) => (
-          <li
+          <StepRow
             key={step.key}
-            className="flex items-start gap-3 rounded-md border border-transparent p-2 transition-colors hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-800 dark:hover:bg-zinc-900"
+            href={step.action && !step.effectiveDone ? step.action.href : null}
           >
             <div className="mt-0.5 flex-shrink-0">
               {step.effectiveDone ? (
@@ -122,18 +122,19 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
                   )}
                 </div>
                 {step.action && !step.effectiveDone && (
-                  <Link
-                    href={step.action.href}
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
-                  >
+                  <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
                     {step.action.label}
                     <ChevronRight className="h-3 w-3" />
-                  </Link>
+                  </span>
                 )}
                 {step.locallyDismissed && (
                   <button
-                    onClick={() => undoDone(step.key)}
-                    className="text-xs text-zinc-500 hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      undoDone(step.key);
+                    }}
+                    className="relative z-10 text-xs text-zinc-500 hover:underline"
                   >
                     Undo
                   </button>
@@ -149,16 +150,47 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
               )}
               {!step.effectiveDone && (
                 <button
-                  onClick={() => markDone(step.key)}
-                  className="mt-1 text-xs text-zinc-500 hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    markDone(step.key);
+                  }}
+                  className="relative z-10 mt-1 text-xs text-zinc-500 hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
                 >
                   Mark as done →
                 </button>
               )}
             </div>
-          </li>
+          </StepRow>
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Wraps each onboarding step in a clickable Link when an action is
+ * available, so users can click anywhere on the row to navigate.
+ * Falls back to a plain <li> when the step is done (no action) so
+ * the whole row isn't a dead-link target.
+ */
+function StepRow({
+  href,
+  children,
+}: {
+  href: string | null;
+  children: React.ReactNode;
+}) {
+  const baseClasses =
+    "flex items-start gap-3 rounded-md border border-transparent p-2 transition-colors hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-800 dark:hover:bg-zinc-900";
+  if (!href) {
+    return <li className={baseClasses}>{children}</li>;
+  }
+  return (
+    <li>
+      <Link href={href} className={`${baseClasses} cursor-pointer`}>
+        {children}
+      </Link>
+    </li>
   );
 }
