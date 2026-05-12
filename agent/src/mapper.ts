@@ -128,7 +128,13 @@ export function mapPath(vaultRelPath: string): EntityKind {
   // ─── Meetings (top-level) ──────────────────────────────────────────────
   if (p.startsWith("Meetings/")) return wikiOrFile(["meeting"]);
 
-  return { kind: "ignore", reason: "no mapping rule" };
+  // ─── Permissive default ────────────────────────────────────────────────
+  // Anything else: sync as wiki page (markdown) or file_artifact (binary)
+  // with no special tags. Keegan's hardcoded path-based mappings above
+  // are NICE-TO-HAVE for his folder structure, but we shouldn't refuse
+  // to sync files just because they don't match his conventions.
+  // Future: per-user mapping rules learned from filing_rules.
+  return wikiOrFile(undefined);
 }
 
 /** Used as fallback title when frontmatter and H1 are both missing. */
