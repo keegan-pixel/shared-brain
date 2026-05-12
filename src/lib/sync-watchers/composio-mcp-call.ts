@@ -23,6 +23,78 @@ export type ComposioToolResult = {
   error?: string;
 };
 
+/**
+ * Resolve Composio (apiKey, mcpUrl) for the given orgId — or fall back
+ * to env. Shared by `executeComposioTool` (the MULTI_EXECUTE wrapper)
+ * and `callComposioToolDirect` (for meta-tools that can't be wrapped).
+ */
+async function resolveAuth(orgId?: string): Promise<
+  { apiKey: string; url: string } | { error: string }
+> {
+  if (orgId) {
+    const { resolveOrgComposioKey } = await import("@/lib/composio-keys");
+    const resolved = await resolveOrgComposioKey(orgId);
+    if (!resolved) return { error: "Composio not configured for this org" };
+    return { apiKey: resolved.apiKey, url: resolved.mcpUrl };
+  }
+  const apiKey = process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_CONSUMER_API_KEY;
+  if (!apiKey) return { error: "COMPOSIO_API_KEY (consumer key) is not set" };
+  return {
+    apiKey,
+    url: process.env.COMPOSIO_MCP_URL || DEFAULT_COMPOSIO_MCP_URL,
+  };
+}
+
+/**
+ * Call a Composio Tool Router HELPER (meta-tool) directly — bypasses
+ * MULTI_EXECUTE which rejects meta-tools with:
+ *   "X is a Tool Router helper tool and cannot be executed inside
+ *    COMPOSIO_MULTI_EXECUTE_TOOL. Run non-meta tools directly instead."
+ *
+ * Use for: COMPOSIO_MANAGE_CONNECTIONS, COMPOSIO_SEARCH_TOOLS, etc.
+ */
+export async function callComposioToolDirect(args: {
+  toolSlug: string;
+  arguments: Record<string, unknown>;
+  orgId?: string;
+}): Promise<ComposioToolResult> {
+  const auth = await resolveAuth(args.orgId);
+  if ("error" in auth) return { success: false, error: auth.error };
+
+  const transport = new StreamableHTTPClientTransport(new URL(auth.url), {
+    requestInit: { headers: { "x-consumer-api-key": auth.apiKey } },
+  });
+  const client = new Client(
+    { name: "Claude", version: "1.0.0" },
+    { capabilities: {} },
+  );
+  try {
+    await client.connect(transport);
+    const result = await client.callTool({
+      name: args.toolSlug,
+      arguments: args.arguments,
+    });
+    const content = (result.content ?? []) as Array<{ type: string; text?: string }>;
+    const textPart = content.find((c) => c.type === "text");
+    if (!textPart?.text) {
+      return { success: false, error: "Composio returned no text content" };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(textPart.text);
+    } catch {
+      // Some meta-tools return plain text — not all are JSON.
+      return { success: true, data: { text: textPart.text } as Record<string, unknown> };
+    }
+    return { success: true, data: parsed as Record<string, unknown> };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  } finally {
+    try { await client.close(); } catch { /* swallow */ }
+    try { await transport.close(); } catch { /* swallow */ }
+  }
+}
+
 export async function executeComposioTool(args: {
   toolSlug: string;
   arguments: Record<string, unknown>;

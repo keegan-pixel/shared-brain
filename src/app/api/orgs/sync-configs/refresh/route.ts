@@ -17,7 +17,7 @@ import { db } from "@/lib/db/client";
 import { syncConfigs } from "@/lib/db/schema";
 import { ensureUserOrg } from "@/lib/org";
 import { handle } from "@/lib/api";
-import { executeComposioTool } from "@/lib/sync-watchers/composio-mcp-call";
+import { callComposioToolDirect } from "@/lib/sync-watchers/composio-mcp-call";
 
 type ComposioConnection = {
   id?: string;
@@ -112,8 +112,9 @@ export const POST = handle(async (req: NextRequest) => {
   const org = await ensureUserOrg();
   const debug = new URL(req.url).searchParams.get("debug") === "1";
 
-  // Ask Composio for the user's connections via the meta-tool surface.
-  const result = await executeComposioTool({
+  // MANAGE_CONNECTIONS is a Composio meta-tool — must be called
+  // directly, NOT via MULTI_EXECUTE_TOOL (Composio rejects that).
+  const result = await callComposioToolDirect({
     toolSlug: "COMPOSIO_MANAGE_CONNECTIONS",
     arguments: { action: "list" },
     orgId: org.id,
