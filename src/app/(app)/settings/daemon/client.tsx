@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 
 type Props = {
   userTag: string;
@@ -65,13 +66,7 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
           >
             {revealed ? "Hide" : "Reveal"}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigator.clipboard.writeText(syncKey)}
-          >
-            Copy
-          </Button>
+          <CopyButton text={syncKey} disabled={!syncKey} />
         </div>
       </div>
 
@@ -145,14 +140,10 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
             <code>{installCommand}</code>
           </pre>
           {vaultPath && (
-            <Button
-              variant="outline"
-              size="sm"
+            <CopyButton
+              text={installCommand}
               className="absolute right-2 top-2"
-              onClick={() => navigator.clipboard.writeText(installCommand)}
-            >
-              Copy
-            </Button>
+            />
           )}
         </div>
         <ul className="mt-3 list-disc pl-5 text-xs text-muted-foreground">

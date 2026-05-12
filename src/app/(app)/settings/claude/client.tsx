@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 
 export function ClaudeConnectClient({
   mcpUrl,
@@ -20,13 +20,7 @@ export function ClaudeConnectClient({
         <code className="flex-1 break-all rounded bg-muted px-3 py-2 text-xs">
           {mcpUrl}
         </code>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigator.clipboard.writeText(mcpUrl)}
-        >
-          Copy
-        </Button>
+        <CopyButton text={mcpUrl} />
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
         OAuth discovery happens automatically. If Claude asks for additional
