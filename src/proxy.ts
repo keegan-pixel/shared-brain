@@ -22,6 +22,8 @@ const isPublicRoute = createRouteMatcher([
   "/.well-known/oauth-authorization-server(.*)",
   "/.well-known/oauth-protected-resource(.*)",
   "/api/oauth/token",
+  // Phase 8 v2 MVP: DCR (RFC 7591) — public so new AI clients can self-register.
+  "/api/register",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
