@@ -39,6 +39,44 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
   const [configs, setConfigs] = useState(initial);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshFromComposio = async () => {
+    setRefreshing(true);
+    setError(null);
+    setRefreshMessage(null);
+    try {
+      const res = await fetch("/api/orgs/sync-configs/refresh", {
+        method: "POST",
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        count?: number;
+        created?: number;
+        existing?: number;
+        error?: string;
+        hint?: string;
+      };
+      if (!res.ok) {
+        setError(`${data.error ?? `HTTP ${res.status}`}${data.hint ? ` — ${data.hint}` : ""}`);
+        return;
+      }
+      if (data.count === 0) {
+        setRefreshMessage(data.hint ?? "Composio returned 0 connections.");
+        return;
+      }
+      setRefreshMessage(
+        `Found ${data.count} connection${data.count === 1 ? "" : "s"}: ${data.created} new, ${data.existing} already configured.`,
+      );
+      // Reload to pick up the new rows.
+      window.location.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Group by toolkit for cleaner rendering.
   const byToolkit = new Map<string, SyncConfig[]>();
@@ -73,6 +111,29 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
           {error}
         </div>
       )}
+      {refreshMessage && (
+        <div className="rounded border border-green-500/40 bg-green-500/10 px-3 py-2 text-sm text-green-700 dark:text-green-300">
+          {refreshMessage}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+        <div>
+          <h3 className="text-sm font-medium">Pull connections from Composio</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {configs.length === 0
+              ? "No connections set up yet. Click to fetch your Composio-connected accounts and seed this list."
+              : "Re-fetch to pick up any new connections you've added on Composio's side since last refresh."}
+          </p>
+        </div>
+        <Button
+          onClick={refreshFromComposio}
+          disabled={refreshing}
+          variant={configs.length === 0 ? "default" : "outline"}
+        >
+          {refreshing ? "Fetching..." : configs.length === 0 ? "Fetch connections" : "Refresh"}
+        </Button>
+      </div>
 
       <div className="rounded-lg border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
         <strong className="text-foreground">Phase F4 v2 status:</strong> Gmail
