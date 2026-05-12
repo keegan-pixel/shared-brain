@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { Check, Circle, ChevronRight } from "lucide-react";
 import { eq } from "drizzle-orm";
-import { ensureUserOrg } from "@/lib/org";
+import { ensureUserOrg, requireUserId } from "@/lib/org";
 import { db } from "@/lib/db/client";
 import { spaces } from "@/lib/db/schema";
 import { deriveOnboardingState } from "@/lib/onboarding";
 
 export default async function Home() {
+  const userId = await requireUserId();
   const org = await ensureUserOrg();
-  const onboarding = await deriveOnboardingState(org.id);
+  const onboarding = await deriveOnboardingState(org.id, userId);
   const orgSpaces = await db.select().from(spaces).where(eq(spaces.orgId, org.id));
 
   const isOnboarding = onboarding.completed < onboarding.total;
