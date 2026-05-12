@@ -68,6 +68,7 @@ function parseArgs(argv: string[]): {
   apiBase: string;
   agentDir: string;
   blobToken?: string;
+  syncInclude: string;
   userTag: string;
   userTagExplicit: boolean;
   uninstall: boolean;
@@ -79,6 +80,11 @@ function parseArgs(argv: string[]): {
   let vaultPath = process.env.VAULT_PATH || join(homedir(), "Documents", "ViaOps");
   const extraVaultPaths: string[] = [];
   let apiBase = process.env.SHARED_BRAIN_API_BASE || DEFAULT_API_BASE;
+  // SYNC_INCLUDE controls which subfolders the daemon watches. Default
+  // "." = the entire vault root (permissive, works for any user's
+  // folder structure). Pass `--include "Knowledge,Pipeline,..."` to
+  // restrict to specific top-level folders (Keegan's old behavior).
+  let syncInclude = process.env.SYNC_INCLUDE || ".";
   // The agent dir is wherever this repo's `agent/` lives. Default: ../agent
   // relative to the script (scripts/install-daemon.ts → agent/).
   let agentDir = resolve(__dirname, "..", "agent");
@@ -96,6 +102,7 @@ function parseArgs(argv: string[]): {
     if (a === "--api-key" && args[i + 1]) apiKey = args[++i];
     else if (a === "--vault-path" && args[i + 1]) vaultPath = args[++i];
     else if (a === "--extra-vault-path" && args[i + 1]) extraVaultPaths.push(args[++i]);
+    else if (a === "--include" && args[i + 1]) syncInclude = args[++i];
     else if (a === "--api-base" && args[i + 1]) apiBase = args[++i];
     else if (a === "--agent-dir" && args[i + 1]) agentDir = args[++i];
     else if (a === "--blob-token" && args[i + 1]) blobToken = args[++i];
@@ -113,6 +120,7 @@ function parseArgs(argv: string[]): {
     apiBase,
     agentDir,
     blobToken,
+    syncInclude,
     userTag: sanitizeUserTag(userTag),
     userTagExplicit,
     uninstall,
@@ -133,6 +141,7 @@ function buildPlist(opts: {
   apiKey: string;
   vaultPath: string;
   extraVaultPaths: string[];
+  syncInclude: string;
   blobToken?: string;
   label: string;
   logPath: string;
@@ -180,7 +189,9 @@ function buildPlist(opts: {
     <key>MCP_API_KEY</key>
     <string>${escapeXml(opts.apiKey)}</string>
     <key>VAULT_PATH</key>
-    <string>${escapeXml(opts.vaultPath)}</string>${extraVaultBlock}${blobBlock}
+    <string>${escapeXml(opts.vaultPath)}</string>
+    <key>SYNC_INCLUDE</key>
+    <string>${escapeXml(opts.syncInclude)}</string>${extraVaultBlock}${blobBlock}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -275,6 +286,7 @@ async function main() {
     apiKey: opts.apiKey,
     vaultPath: opts.vaultPath,
     extraVaultPaths: opts.extraVaultPaths,
+    syncInclude: opts.syncInclude,
     blobToken: opts.blobToken,
     label,
     logPath,
