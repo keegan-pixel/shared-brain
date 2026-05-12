@@ -278,14 +278,28 @@ export async function getComposioTools(orgId: string): Promise<ToolSet> {
  * Composio's meta-tool surface and which connected account to prefer
  * per brand.
  */
-export function composioPromptHint(): string | null {
-  if (!isComposioConfigured()) return null;
+/**
+ * Generic Composio hint for the chat system prompt. Per-org routing
+ * lives in the user's Profile.md (loaded via `get_operating_instructions`);
+ * this hint just tells Claude how to discover available connections
+ * at runtime via Composio's meta-tools.
+ *
+ * Phase 8 v2 prep: the hardcoded ViaOps routing table that lived here
+ * was Keegan-specific. Now it's runtime-discovered + Profile.md-driven
+ * so Jake / Richard / any future user gets correct routing for their
+ * own Composio connections.
+ *
+ * Returns null when Composio is not configured (chat works in
+ * platform-only mode in that case).
+ */
+export async function composioPromptHint(orgId?: string): Promise<string | null> {
+  if (!(await isComposioConfigured(orgId))) return null;
   return [
     "## External app tools (Composio)",
     "You have Composio's meta-tool surface: `COMPOSIO_SEARCH_TOOLS`, `COMPOSIO_GET_TOOL_SCHEMAS`,",
     "`COMPOSIO_MULTI_EXECUTE_TOOL`, `COMPOSIO_MANAGE_CONNECTIONS`, plus the workbench / wait /",
-    "bash variants. Use them to act on the user's Gmail, Google Calendar, Google Drive, Notion,",
-    "LinkedIn, Discord, and QuickBooks accounts.",
+    "bash variants. Use them to act on the user's external services (Gmail, Calendar, Drive,",
+    "Notion, LinkedIn, Discord, etc.) — whichever they've connected.",
     "",
     "**Workflow for an external-app task:**",
     "1. `COMPOSIO_SEARCH_TOOLS` with the use case (e.g. `'list calendar events for today'`).",
@@ -293,20 +307,16 @@ export function composioPromptHint(): string | null {
     "3. `COMPOSIO_MULTI_EXECUTE_TOOL` with `tool_slug`, `arguments`, and **always pass `account`**",
     "   for multi-account toolkits (gmail, googlecalendar, googledrive).",
     "",
-    "**Account routing** (full table: `Composio Mapping.md`):",
-    "- **Default for Gmail / Calendar / Drive when unspecified:** ViaOps (`keegan@viaops.co`).",
-    "  - Gmail: `gmail_berret-drinn`",
-    "  - Calendar: `googlecalendar_finn-septa`",
-    "  - Drive: `googledrive_tilaka-actian`",
-    "- \"From SimHouse\" → Gmail `gmail_rubine-smell` / Calendar `googlecalendar_whole-scrim` / Drive `googledrive_thilly-backet`",
-    "- \"Chief of Chaos\" / \"XPFlow company\" → Gmail `gmail_sorage-wavira` / Calendar `googlecalendar_bowls-gandum` (also reads Matt's + Patti's calendars) / Drive `googledrive_ahmed-charry`",
-    "- \"Coaching\" / \"Lamar Coaching\" → Gmail `gmail_casper-nerium` / Calendar `googlecalendar_suave-saco` / Drive `googledrive_tigger-robe` / QuickBooks `quickbooks_frail-album`",
-    "- \"SwingBays\" → Gmail `gmail_shady-beday` / Calendar `googlecalendar_servet-yaya`",
-    "- \"Personal\" → Gmail `gmail_theek-rush` / Calendar `googlecalendar_prof-enlife`",
-    "- Notion → `notion_erick-immix` (XPFlow workspace)",
-    "- LinkedIn → `linkedin_shiny-arigue`",
-    "- Discord → `discord_ethine-acarus`",
+    "**Account routing — runtime discovery:**",
+    "Different users have different connected accounts with different IDs. Don't assume specific",
+    "connection IDs. Two options to figure out which account to pass:",
+    "1. **Check the user's Profile.md** (via `get_operating_instructions`) — if they've recorded",
+    "   per-context routing rules (e.g. 'use Gmail X for work'), follow those.",
+    "2. **Discover at runtime** — call `COMPOSIO_MANAGE_CONNECTIONS` to list the user's actual",
+    "   connections, then pick the right one based on the context. Confirm with the user if",
+    "   ambiguous (\"You have 3 Gmail accounts connected — which one for this?\").",
     "",
-    "When the user's request is ambiguous (\"send an email\"), default to ViaOps. When they name a brand (\"check the SimHouse calendar\"), use that brand's account.",
+    "Never invent a connection ID. Always use one you've seen in MANAGE_CONNECTIONS output or",
+    "in the user's Profile.md routing rules.",
   ].join("\n");
 }

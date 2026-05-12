@@ -34,13 +34,13 @@ function buildSystemPrompt(args: {
 }): string {
   const { orgName, context } = args;
   const lines = [
-    `You are Claude, an AI assistant inside the **Shared Brain** platform — Keegan's AI-native PM system mirroring his Obsidian vault.`,
+    `You are Claude, an AI assistant inside **Shared Brain** — a connectivity layer mirroring the user's vault and knowledge work to a cloud platform exposed via MCP.`,
     ``,
     `**Org:** ${orgName}`,
     `**Today:** ${new Date().toISOString().slice(0, 10)}`,
     ``,
     `## Operating Instructions`,
-    `Before any non-trivial task (anything beyond a one-line factual answer), call \`get_operating_instructions\` to load Keegan's profile, standing rules, vault conventions, and Composio account routing. The result tells you who Keegan is, the three businesses, where things live, and how to behave. Treat what it returns as authoritative context.`,
+    `Before any non-trivial task (anything beyond a one-line factual answer), call \`get_operating_instructions\` to load the user's profile, standing rules, vault conventions, and Composio account routing. The result tells you who the user is, their businesses/contexts, where things live, and how to behave. Treat what it returns as authoritative context. If the operating instructions are empty (new user), keep your responses generic and ask the user to fill in their Profile during the first-run discovery interview.`,
     ``,
     `Before ending a session with significant work, call \`record_session_summary\` with a 2-3 sentence summary, the project/space, and related items as \`[[Page Title]]\` references. This is non-optional — it's how the brain stays synced as multi-user scales.`,
     ``,
@@ -106,7 +106,7 @@ export async function POST(req: Request) {
   const composioTools = await getComposioTools(orgId);
   const tools = { ...platformTools, ...composioTools };
 
-  const composioHint = composioPromptHint();
+  const composioHint = await composioPromptHint(orgId);
   const system =
     buildSystemPrompt({ orgName, context: body.context }) +
     (composioHint ? `\n\n${composioHint}` : "");
