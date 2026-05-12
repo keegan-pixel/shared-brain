@@ -34,7 +34,12 @@ export async function syncOne(
       return { ok: true, action: "ignored", reason: `ignore prefix: ${ig}` };
     }
   }
-  if (!cfg.includePrefixes.some((p) => relative === p || relative.startsWith(`${p}/`))) {
+  // Special prefixes "." and "" mean "the entire vault root" — used by
+  // SYNC_INCLUDE="." in user installs that want everything synced.
+  const matchesInclude = cfg.includePrefixes.some(
+    (p) => p === "." || p === "" || relative === p || relative.startsWith(`${p}/`),
+  );
+  if (!matchesInclude) {
     return { ok: true, action: "ignored", reason: "outside include prefixes" };
   }
   const mapping = mapPath(relative);
