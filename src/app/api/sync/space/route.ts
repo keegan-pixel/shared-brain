@@ -5,7 +5,7 @@ import { db } from "@/lib/db/client";
 import { spaces } from "@/lib/db/schema";
 import { handle, parseJson } from "@/lib/api";
 import { logActivity } from "@/lib/activity";
-import { SYNC_ACTOR, resolveSyncOrg } from "@/lib/sync/context";
+import { SYNC_ACTOR } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 
 const Schema = z.object({

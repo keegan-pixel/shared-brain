@@ -14,7 +14,7 @@ const TOOLKIT_LABELS: Record<string, string> = {
   quickbooks: "QuickBooks",
 };
 
-const SUPPORTED_TOOLKITS = new Set(["gmail"]);
+const SUPPORTED_TOOLKITS = new Set(["gmail", "googlecalendar"]);
 
 function modeBadge(mode: string) {
   const styles: Record<string, string> = {
@@ -148,8 +148,8 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
 
       <div className="rounded-lg border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
         <strong className="text-foreground">Phase F4 v2 status:</strong> Gmail
-        is the only toolkit currently wired for cron auto-sync. Other toolkits
-        accept the toggle but won&apos;t actually poll yet — adapter
+        and Google Calendar are currently wired for cron auto-sync. Other
+        toolkits accept the toggle but won&apos;t actually poll yet — adapter
         implementations land per-toolkit in follow-ups.
       </div>
 

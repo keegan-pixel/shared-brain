@@ -24,7 +24,6 @@
 import { eq, gt, and, isNull, or, sql } from "drizzle-orm";
 import { wikiPages, vaultSyncLog } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
-import { resolveSyncOrg } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 import { handle } from "@/lib/api";
 import { createHash } from "node:crypto";

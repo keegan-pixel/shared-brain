@@ -3,10 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Circle, ChevronRight, RefreshCw } from "lucide-react";
+import { Check, Circle, ChevronRight, Cloud, HardDrive, RefreshCw } from "lucide-react";
 import type { OnboardingState } from "@/lib/onboarding";
 
 const LOCAL_OVERRIDE_KEY = "shared-brain.onboarding.dismissed";
+const PATH_PREF_KEY = "shared-brain.onboarding.path";
+
+type OnboardingPath = "local" | "cloud-only" | null;
 
 /**
  * Phase 8 v2 MVP — onboarding checklist client wrapper.
@@ -22,17 +25,50 @@ const LOCAL_OVERRIDE_KEY = "shared-brain.onboarding.dismissed";
 export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
   const router = useRouter();
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
+  const [path, setPath] = React.useState<OnboardingPath>(null);
   const [hydrated, setHydrated] = React.useState(false);
 
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(LOCAL_OVERRIDE_KEY);
       if (raw) setDismissed(new Set(JSON.parse(raw) as string[]));
+      const p = window.localStorage.getItem(PATH_PREF_KEY) as OnboardingPath;
+      if (p === "local" || p === "cloud-only") setPath(p);
     } catch {
       /* swallow */
     }
     setHydrated(true);
   }, []);
+
+  const choosePath = (next: OnboardingPath) => {
+    setPath(next);
+    try {
+      if (next) window.localStorage.setItem(PATH_PREF_KEY, next);
+      else window.localStorage.removeItem(PATH_PREF_KEY);
+    } catch {
+      /* swallow */
+    }
+  };
+
+  // Auto-poll for server-side state changes while onboarding is incomplete.
+  // Without this, the daemon-connected and Claude-connected signals can
+  // lag ~30s after the user finishes the actual install — the page only
+  // updates on manual Refresh. We poll every 8 seconds, only while at
+  // least one step is still pending, and only when the window has focus
+  // (don't burn cycles on background tabs). Stops as soon as everything's
+  // done. See ADR-038 / Jake's post-mortem — "detection lag" was a
+  // high-friction UX issue.
+  const anyPending = initial.steps.some((s) => s.status === "pending");
+  React.useEffect(() => {
+    if (!anyPending) return;
+    if (typeof document === "undefined") return;
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      router.refresh();
+    };
+    const id = window.setInterval(tick, 8000);
+    return () => window.clearInterval(id);
+  }, [anyPending, router]);
 
   const markDone = (key: string) => {
     const next = new Set(dismissed);
@@ -57,13 +93,22 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
   };
 
   // Effective steps: server-derived status OR locally-dismissed.
-  const effective = initial.steps.map((s) => ({
-    ...s,
-    effectiveDone: s.status === "done" || (hydrated && dismissed.has(s.key)),
-    locallyDismissed: hydrated && dismissed.has(s.key) && s.status !== "done",
-  }));
+  // Path "cloud-only" hides the daemon step entirely (the user doesn't
+  // keep work docs on this Mac, so daemon isn't part of their flow).
+  const effective = initial.steps
+    .filter((s) => {
+      if (!hydrated) return true;
+      if (path === "cloud-only" && s.key === "daemon-connected") return false;
+      return true;
+    })
+    .map((s) => ({
+      ...s,
+      effectiveDone: s.status === "done" || (hydrated && dismissed.has(s.key)),
+      locallyDismissed: hydrated && dismissed.has(s.key) && s.status !== "done",
+    }));
   const completed = effective.filter((s) => s.effectiveDone).length;
-  const progressPct = Math.round((completed / initial.total) * 100);
+  const total = effective.length;
+  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
@@ -71,7 +116,7 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
         <h2 className="font-medium">Onboarding</h2>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">
-            {completed} of {initial.total} · {progressPct}%
+            {completed} of {total} · {progressPct}%
           </span>
           <button
             onClick={() => router.refresh()}
@@ -89,6 +134,70 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
           style={{ width: `${progressPct}%` }}
         />
       </div>
+
+      {hydrated && path === null && (
+        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+            How are you using Shared Brain?
+          </p>
+          <p className="mt-1 text-xs text-blue-900/80 dark:text-blue-100/80">
+            Pick a path so we can hide steps you don&rsquo;t need. You can
+            switch later if your setup changes.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button
+              onClick={() => choosePath("local")}
+              className="flex flex-col items-start gap-1 rounded-md border border-blue-300 bg-white p-3 text-left text-sm hover:bg-blue-100/50 dark:border-blue-800 dark:bg-zinc-900 dark:hover:bg-blue-950/40"
+            >
+              <div className="flex items-center gap-2 font-medium text-blue-950 dark:text-blue-50">
+                <HardDrive className="h-4 w-4" />
+                Local vault
+              </div>
+              <p className="text-xs text-muted-foreground">
+                I keep work documents on this Mac (Obsidian, Notes, etc.).
+                Install the daemon to auto-sync.
+              </p>
+            </button>
+            <button
+              onClick={() => choosePath("cloud-only")}
+              className="flex flex-col items-start gap-1 rounded-md border border-blue-300 bg-white p-3 text-left text-sm hover:bg-blue-100/50 dark:border-blue-800 dark:bg-zinc-900 dark:hover:bg-blue-950/40"
+            >
+              <div className="flex items-center gap-2 font-medium text-blue-950 dark:text-blue-50">
+                <Cloud className="h-4 w-4" />
+                Cloud-only
+              </div>
+              <p className="text-xs text-muted-foreground">
+                My work lives in Gmail / Drive / Notion. Composio handles
+                ingestion — no daemon needed.
+              </p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {hydrated && path !== null && (
+        <div className="mb-4 flex items-center justify-between rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            {path === "local" ? (
+              <>
+                <HardDrive className="h-3 w-3" />
+                <span>Path: <strong className="font-medium text-foreground">Local vault</strong></span>
+              </>
+            ) : (
+              <>
+                <Cloud className="h-3 w-3" />
+                <span>Path: <strong className="font-medium text-foreground">Cloud-only</strong> · daemon step hidden</span>
+              </>
+            )}
+          </span>
+          <button
+            onClick={() => choosePath(null)}
+            className="text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Change
+          </button>
+        </div>
+      )}
 
       <ul className="space-y-3">
         {effective.map((step) => (

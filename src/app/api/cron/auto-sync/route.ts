@@ -15,6 +15,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { syncConfigs } from "@/lib/db/schema";
 import { runGmailSync } from "@/lib/sync-watchers/gmail";
+import { runCalendarSync } from "@/lib/sync-watchers/calendar";
 import type { SyncRunSummary } from "@/lib/sync-watchers/gmail";
 
 function authorized(req: Request): boolean {
@@ -53,6 +54,9 @@ export async function GET(req: Request) {
       switch (cfg.toolkit) {
         case "gmail":
           summary = await runGmailSync({ orgId: cfg.orgId, config: cfg });
+          break;
+        case "googlecalendar":
+          summary = await runCalendarSync({ orgId: cfg.orgId, config: cfg });
           break;
         default:
           summary = {

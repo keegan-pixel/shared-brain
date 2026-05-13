@@ -85,7 +85,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "get_wiki_pages",
-    "List/search Keegan's vault pages by exact title/content substring. Like `search` but text-match instead of semantic — better when you have an exact title phrase. Returns content stub plus tappable `view_url` and `download_url`. NOT for searching Composio services — this is vault/brain content only.",
+    "List/search the user's vault pages by exact title/content substring. Like `search` but text-match instead of semantic — better when you have an exact title phrase. Returns content stub plus tappable `view_url` and `download_url`. NOT for searching Composio services — this is vault/brain content only.",
     { query: z.string().optional() },
     async ({ query }) => {
       const conds = [eq(wikiPages.orgId, ctx.orgId)];
@@ -174,7 +174,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "search",
-    "PRIMARY tool for finding ANY content in Keegan's Shared Brain / Obsidian vault / notes — contracts, meeting notes, contact cards, project docs, invoices, transcripts, logos, images, anything indexed in his vault. Semantic + text search across wiki pages. Returns id/title/snippet plus `view_url` and (for binary files) `download_url`. Use this for ANY request like 'find', 'pull up', 'show me', 'where is', 'what's in', 'pull back', 'see the' targeting vault content. URLs are CLERK-AUTH'D — they're TAPPABLE LINKS for the user (he's signed in on his browser), NOT fetchable by you. Do NOT attempt to fetch view_url / download_url server-side; you'll get the login page. Surface the URLs in your reply text and let the user tap. Do NOT use Composio search for vault content — Composio is for external services (Gmail/Drive/etc); this searches Keegan's filed knowledge.",
+    "PRIMARY tool for finding ANY content in the user's Shared Brain / Obsidian vault / notes — contracts, meeting notes, contact cards, project docs, invoices, transcripts, logos, images, anything indexed in their vault. Semantic + text search across wiki pages. Returns id/title/snippet plus `view_url` and (for binary files) `download_url`. Use this for ANY request like 'find', 'pull up', 'show me', 'where is', 'what's in', 'pull back', 'see the' targeting vault content. URLs are CLERK-AUTH'D — they're TAPPABLE LINKS for the user (they're signed in on their browser), NOT fetchable by you. Do NOT attempt to fetch view_url / download_url server-side; you'll get the login page. Surface the URLs in your reply text and let the user tap. Do NOT use Composio search for vault content — Composio is for external services (Gmail/Drive/etc); this searches the user's filed knowledge.",
     { query: z.string().min(1) },
     async ({ query }) => {
       const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://shared-brain-ecru.vercel.app";
@@ -243,7 +243,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
 
   server.tool(
     "get_document",
-    "Read the FULL extracted text of a doc in Keegan's vault. Use AFTER `search` finds a candidate — pass the id (or title_match) and get back the complete body. Returns prose markdown for .md pages and full extracted text for binary files (.docx / .pdf / .xlsx). Includes view_url and download_url. Use this when the caller wants you to summarize, analyze, or quote from a specific vault doc — NOT for Gmail/Drive/Composio content.",
+    "Read the FULL extracted text of a doc in the user's vault. Use AFTER `search` finds a candidate — pass the id (or title_match) and get back the complete body. Returns prose markdown for .md pages and full extracted text for binary files (.docx / .pdf / .xlsx). Includes view_url and download_url. Use this when the caller wants you to summarize, analyze, or quote from a specific vault doc — NOT for Gmail/Drive/Composio content.",
     {
       wiki_page_id: z.string().uuid().optional(),
       title_match: z
@@ -739,7 +739,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
   server.tool(
     "file_document",
     [
-      "Save an external document (email body, meeting transcript, fetched file content, web page, etc.) into Keegan's vault at an AI-classified location. YOU decide the targetPath using:",
+      "Save an external document (email body, meeting transcript, fetched file content, web page, etc.) into the user's vault at an AI-classified location. YOU decide the targetPath using:",
       "1. Routing rules from get_operating_instructions (Profile.md sections 5 + 7 — where things go).",
       "2. Active state from get_active_state (which active project/space matches the content?).",
       "3. The document's content (subject, parties, topic, dates).",
@@ -768,7 +768,7 @@ export function registerTools(server: McpServer, ctx: McpContext) {
         .string()
         .optional()
         .describe(
-          "Origin descriptor — e.g. 'gmail:keegan@viaops.co/INBOX/<msgId>', 'gdrive:<file_id>', 'granola:<meetingId>'.",
+          "Origin descriptor — e.g. 'gmail:user@example.com/INBOX/<msgId>', 'gdrive:<file_id>', 'granola:<meetingId>'.",
         ),
       reasoning: z
         .string()

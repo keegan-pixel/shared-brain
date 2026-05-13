@@ -1,29 +1,16 @@
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db/client";
-import { organizations } from "@/lib/db/schema";
-
-let _cached: { orgId: string; ownerUserId: string } | null = null;
-
-/** Resolve the org context for a sync request. Same logic as MCP context. */
-export async function resolveSyncOrg() {
-  if (_cached) return _cached;
-
-  const targetUserId = process.env.MCP_USER_ID;
-  if (targetUserId) {
-    const [org] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.ownerUserId, targetUserId))
-      .limit(1);
-    if (!org) throw new Error(`No org found for MCP_USER_ID=${targetUserId}`);
-    _cached = { orgId: org.id, ownerUserId: org.ownerUserId };
-    return _cached;
-  }
-
-  const [org] = await db.select().from(organizations).limit(1);
-  if (!org) throw new Error("No organizations exist. Sign in once at the web app to bootstrap your org.");
-  _cached = { orgId: org.id, ownerUserId: org.ownerUserId };
-  return _cached;
-}
+/**
+ * Sync context constants.
+ *
+ * Historical note: this module used to export a `resolveSyncOrg()` helper
+ * with a module-level cache. That helper resolved sync requests to a
+ * single "default org" — the same Keegan-as-only-test-user pattern that
+ * caused the per-user MCP context leak (see ADR-038 / Jake's post-mortem
+ * bug #16). The helper was dead code after Phase 8 v2 MVP Build D
+ * shipped `requireSyncAuth(req)` (per-org sync keys) but lived on as
+ * an imported-but-unused footgun.
+ *
+ * Deleted 2026-05-12 (Track 1 audit). All sync routes now resolve org
+ * via `requireSyncAuth(req)` which keys off the request's sync key.
+ */
 
 export const SYNC_ACTOR = "vault-sync";

@@ -7,7 +7,7 @@ import { items, itemStatusValues, itemTypeValues, projects, spaces, vaultSyncLog
 import { ApiError, handle, parseJson } from "@/lib/api";
 import { logActivity } from "@/lib/activity";
 import { indexEntityLinks } from "@/lib/connections/extract";
-import { SYNC_ACTOR, resolveSyncOrg } from "@/lib/sync/context";
+import { SYNC_ACTOR } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 
 const Schema = z.object({

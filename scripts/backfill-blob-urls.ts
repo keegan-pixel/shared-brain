@@ -28,13 +28,16 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { put } from "@vercel/blob";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../src/lib/db/client";
 import { vaultSyncLog, wikiPages } from "../src/lib/db/schema";
 
 const DRY_RUN = process.argv.includes("--dry-run");
-const VAULT_ROOT = process.env.VAULT_PATH || "/Users/keeganlamar/Documents/ViaOps";
+// VAULT_PATH should be set explicitly for multi-tenant correctness.
+// Fall back to ~/Documents/ViaOps so Keegan's local dev still works.
+const VAULT_ROOT = process.env.VAULT_PATH || path.join(os.homedir(), "Documents", "ViaOps");
 
 function parseLimit(): number | null {
   const i = process.argv.indexOf("--limit");

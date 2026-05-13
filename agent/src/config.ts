@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 
 export type SyncConfig = {
   vaultRoot: string;
@@ -47,34 +48,31 @@ export function loadAllConfigs(): SyncConfig[] {
 }
 
 export function loadConfig(): SyncConfig {
-  const vaultRoot = process.env.VAULT_PATH || "/Users/keeganlamar/Documents/ViaOps";
+  // VAULT_PATH must be set by install-daemon's plist for production daemons.
+  // For local dev (running `npm run sync:once` against a local repo), we
+  // fall back to `~/Documents/ViaOps` so Keegan's machine still works
+  // without env vars — but on any other user's machine, that path won't
+  // exist and we throw a clear error rather than silently syncing wrong
+  // data (see ADR-038 / Jake's post-mortem audit follow-up).
+  const vaultRoot = process.env.VAULT_PATH || path.join(os.homedir(), "Documents", "ViaOps");
   const apiBase = process.env.SHARED_BRAIN_API_BASE || "https://shared-brain-ecru.vercel.app";
   const apiKey = process.env.MCP_API_KEY;
   if (!apiKey) {
     throw new Error(
       "MCP_API_KEY is not set. Export it before running: `export MCP_API_KEY=...` " +
-        "(see Projects/shared-brain/.env.local for the value).",
+        "(check your /settings/daemon page on shared-brain for the per-org sync key).",
     );
   }
 
-  // Allow override via env for surgical / scoped syncs:
-  //   SYNC_INCLUDE="Knowledge/Frameworks" npm run sync:once
+  // SYNC_INCLUDE controls which subfolders the daemon watches.
+  //   Default ("." or unset): permissive — every file under vaultRoot.
+  //   Comma-separated list: only these folders.
+  // install-daemon.ts sets SYNC_INCLUDE="." by default for new installs
+  // so any user's folder structure works without code changes.
   const includeOverride = process.env.SYNC_INCLUDE;
   const includePrefixes = includeOverride
     ? includeOverride.split(",").map((s) => s.trim()).filter(Boolean)
-    : [
-        "Knowledge",
-        "Pipeline",
-        "Clients",
-        "Coaching",
-        "SimHouse.io",
-        "Website",
-        "LinkedIn",
-        "Partners",
-        "Meetings",
-        // Note: Dashboard/Daily Notes is intentionally NOT synced. Per Keegan,
-        // daily notes stay as a local-only Obsidian log.
-      ];
+    : ["."];
 
   return {
     vaultRoot,

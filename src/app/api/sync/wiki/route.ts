@@ -7,7 +7,7 @@ import { handle, parseJson } from "@/lib/api";
 import { embed } from "@/lib/embeddings";
 import { logActivity } from "@/lib/activity";
 import { indexEntityLinks } from "@/lib/connections/extract";
-import { SYNC_ACTOR, resolveSyncOrg } from "@/lib/sync/context";
+import { SYNC_ACTOR } from "@/lib/sync/context";
 import { requireSyncAuth } from "@/lib/sync/auth";
 
 const Schema = z.object({
