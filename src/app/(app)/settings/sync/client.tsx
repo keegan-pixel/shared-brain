@@ -104,6 +104,24 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
     });
   };
 
+  const saveLabel = async (cfg: SyncConfig, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed || trimmed === cfg.label) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/sync-configs/${cfg.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: trimmed }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      const { config: updated } = (await res.json()) as { config: SyncConfig };
+      setConfigs((prev) => prev.map((c) => (c.id === cfg.id ? updated : c)));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {error && (
@@ -173,7 +191,7 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
             {list.map((cfg) => (
               <li key={cfg.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{cfg.label}</div>
+                  <EditableLabel value={cfg.label} onSave={(v) => saveLabel(cfg, v)} />
                   <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                     <code className="rounded bg-muted px-1 py-0.5">{cfg.connectionId}</code>
                     <span>last synced: {fmtRelative(cfg.lastSyncedAt)}</span>
@@ -204,5 +222,63 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
         </section>
       ))}
     </div>
+  );
+}
+
+/**
+ * Click-to-edit label component. Single-line input on click, saves on
+ * blur or Enter, reverts on Escape. Shipped 2026-05-14 because Composio's
+ * MANAGE_CONNECTIONS response doesn't always include `alias` for some
+ * accounts (Richard's case), so the auto-derived labels can be cryptic
+ * (e.g. "gmail (gmail_xxx-yyy)"). User can rename inline to whatever
+ * makes sense to them — "Personal Gmail", "Work Calendar", etc.
+ */
+function EditableLabel({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (next: string) => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(value);
+          setEditing(true);
+        }}
+        className="block w-full truncate text-left text-sm font-medium hover:text-blue-600 focus:outline-none focus:text-blue-600 dark:hover:text-blue-400 dark:focus:text-blue-400"
+        title="Click to rename"
+      >
+        {value}
+      </button>
+    );
+  }
+
+  const commit = () => {
+    setEditing(false);
+    void onSave(draft);
+  };
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setDraft(value);
+          setEditing(false);
+        }
+      }}
+      className="w-full rounded border border-blue-400 bg-background px-1 py-0.5 text-sm font-medium focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      maxLength={160}
+    />
   );
 }

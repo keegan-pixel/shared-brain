@@ -14,6 +14,8 @@ import { ApiError, handle, parseJson } from "@/lib/api";
 const PatchSchema = z.object({
   mode: z.enum(syncConfigModeValues).optional(),
   sourceFilter: z.record(z.string(), z.unknown()).optional(),
+  /** Human-readable label for the connection. User-editable via inline UI. */
+  label: z.string().min(1).max(160).optional(),
 });
 
 export const PATCH = handle(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
@@ -30,6 +32,7 @@ export const PATCH = handle(async (req: Request, ctx: { params: Promise<{ id: st
   const update: Partial<typeof syncConfigs.$inferInsert> = { updatedAt: new Date() };
   if (body.mode !== undefined) update.mode = body.mode;
   if (body.sourceFilter !== undefined) update.sourceFilter = body.sourceFilter;
+  if (body.label !== undefined) update.label = body.label.trim();
 
   const [updated] = await db
     .update(syncConfigs)
