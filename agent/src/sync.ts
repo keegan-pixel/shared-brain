@@ -60,9 +60,13 @@ export async function syncOne(
     try {
       const stat = await fs.stat(absPath);
       const blobMarker = isBlobConfigured() ? "1" : "0";
-      // v3: bumped after fixing pdf-parse v2 API usage so all PDFs reprocess
-      // and pick up extracted text.
-      hash = sha1(`v3|${relative}|${stat.size}|${stat.mtimeMs}|blob:${blobMarker}`);
+      // v4: bumped 2026-05-14 after improving extract.ts cloud-offload error
+      // handling. Forces a re-extract on every file_artifact so users whose
+      // first sync hit "extract failed: unknown system error -11, read"
+      // (Richard's case — Google Drive / Dropbox / iCloud dehydrated files)
+      // get a clean retry after they set their cloud folders to keep files
+      // downloaded.
+      hash = sha1(`v4|${relative}|${stat.size}|${stat.mtimeMs}|blob:${blobMarker}`);
     } catch (err) {
       return { ok: false, error: `stat failed: ${(err as Error).message}` };
     }

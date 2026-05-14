@@ -44,7 +44,28 @@ export async function extractText(absPath: string): Promise<ExtractResult> {
         return { ...EMPTY, skipReason: `no extractor for .${ext}` };
     }
   } catch (err) {
-    return { ...EMPTY, skipReason: `extract failed: ${(err as Error).message}` };
+    const msg = (err as Error).message;
+    // Cloud-offload detection: macOS returns "unknown system error -11"
+    // when a file lives in iCloud / Google Drive / Dropbox / OneDrive
+    // and its contents are dehydrated to the cloud (only a stub is on
+    // disk). Surface a useful pointer so the user knows what to do.
+    // First seen during Richard Lackey's install 2026-05-14 — three
+    // vault paths all in cloud-synced folders.
+    if (
+      msg.includes("-11") ||
+      msg.includes("unknown system error") ||
+      msg.includes("ENOENT") && absPath.includes("CloudStorage") ||
+      absPath.includes("Mobile Documents")
+    ) {
+      return {
+        ...EMPTY,
+        skipReason:
+          "extract skipped: file offloaded to cloud. Set your sync folder " +
+          "to 'Always Keep on this Mac' / 'Available Offline' / 'Mirror files', " +
+          "then run `npm run backfill:extracts` from the repo to re-extract.",
+      };
+    }
+    return { ...EMPTY, skipReason: `extract failed: ${msg}` };
   }
 }
 
