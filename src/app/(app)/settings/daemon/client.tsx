@@ -90,10 +90,10 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
           lives in more than one place.
         </p>
         {vaultPaths.length > 1 && (
-          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-            <strong>Note:</strong> for now the daemon watches the first folder
-            fully. Additional folders are passed through to the config and
-            will be live-watched in the next update (v2.1).
+          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+            <strong>Multi-folder mode:</strong> all {vaultPaths.length} folders will
+            be watched live. Each gets its own watcher; file changes anywhere
+            sync within seconds.
           </p>
         )}
         <div className="mt-3 space-y-2">
