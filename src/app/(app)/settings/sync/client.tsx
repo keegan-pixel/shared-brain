@@ -55,6 +55,8 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
         count?: number;
         created?: number;
         existing?: number;
+        relabeled?: number;
+        enrichment_failures?: number;
         error?: string;
         hint?: string;
       };
@@ -66,9 +68,20 @@ export function SyncConfigsClient({ initial }: { initial: SyncConfig[] }) {
         setRefreshMessage(data.hint ?? "Composio returned 0 connections.");
         return;
       }
-      setRefreshMessage(
-        `Found ${data.count} connection${data.count === 1 ? "" : "s"}: ${data.created} new, ${data.existing} already configured.`,
-      );
+      const parts = [
+        `Found ${data.count} connection${data.count === 1 ? "" : "s"}`,
+        `${data.created} new`,
+        `${data.existing} already configured`,
+      ];
+      if (data.relabeled && data.relabeled > 0) {
+        parts.push(`${data.relabeled} relabeled with proper account names`);
+      }
+      if (data.enrichment_failures && data.enrichment_failures > 0) {
+        parts.push(
+          `${data.enrichment_failures} couldn't be auto-labeled (Composio profile call failed) — rename inline`,
+        );
+      }
+      setRefreshMessage(`${parts[0]}: ${parts.slice(1).join(", ")}.`);
       // Reload to pick up the new rows.
       window.location.reload();
     } catch (err) {
