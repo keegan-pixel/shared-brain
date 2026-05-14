@@ -35,6 +35,19 @@ export const organizations = pgTable("organizations", {
   /** Obsidian vault name for deep-links — null if user has no local vault. */
   vaultName: text("vault_name"),
   /**
+   * The vault paths the user has configured for the daemon to watch.
+   * Stored as a JSON array of absolute paths. First element is the
+   * primary vault (passed as --vault-path); subsequent are extras
+   * (passed as --extra-vault-path each).
+   *
+   * Phase 8 v2 — added 2026-05-14 because vault paths previously only
+   * lived in the user's launchd plist on disk. The UI had no source of
+   * truth, so users had to re-type all their paths every time they
+   * wanted to add or remove one. Now persisted server-side so
+   * `/settings/daemon` shows them on every visit and supports add/remove.
+   */
+  vaultPaths: jsonb("vault_paths").$type<string[]>().notNull().default([]),
+  /**
    * Per-org sync key. Generated at org create (32 random bytes,
    * base64url-encoded, prefixed `sb_sync_`). Used by the local sync
    * daemon to authenticate against /api/sync/*. Each org has its own

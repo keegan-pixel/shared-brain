@@ -33,6 +33,7 @@ export default async function DaemonSettingsPage() {
         userTag={userTag}
         vaultName={fresh?.vaultName ?? ""}
         syncKey={syncKey}
+        savedPaths={fresh?.vaultPaths ?? []}
       />
     </div>
   );

@@ -15,6 +15,8 @@ const PatchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   /** Obsidian vault name for deep-links — pass empty string / null to clear. */
   vaultName: z.string().max(120).nullable().optional(),
+  /** Vault paths the daemon should watch. Pass full list (replace, not merge). */
+  vaultPaths: z.array(z.string().min(1).max(500)).max(20).optional(),
 });
 
 /**
@@ -30,13 +32,22 @@ export const PATCH = handle(async (req: Request) => {
   const userId = await requireUserId();
   const body = await parseJson(req, PatchSchema);
 
-  if (body.name === undefined && body.vaultName === undefined) {
+  if (
+    body.name === undefined &&
+    body.vaultName === undefined &&
+    body.vaultPaths === undefined
+  ) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
-  const patch: { name?: string; vaultName?: string | null } = {};
+  const patch: {
+    name?: string;
+    vaultName?: string | null;
+    vaultPaths?: string[];
+  } = {};
   if (body.name !== undefined) patch.name = body.name;
   if (body.vaultName !== undefined) patch.vaultName = body.vaultName || null;
+  if (body.vaultPaths !== undefined) patch.vaultPaths = body.vaultPaths;
 
   const [updated] = await db
     .update(organizations)

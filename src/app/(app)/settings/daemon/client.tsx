@@ -9,16 +9,25 @@ type Props = {
   userTag: string;
   vaultName: string;
   syncKey: string;
+  /** Previously configured vault paths — comes from the DB. Empty array
+   * on first-ever install. */
+  savedPaths: string[];
 };
 
 const APP_URL = "https://shared-brain-ecru.vercel.app";
 
-export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
+export function DaemonInstallClient({ userTag, vaultName, syncKey, savedPaths }: Props) {
   const [revealed, setRevealed] = React.useState(false);
   // Multi-folder support: user can add as many vault paths as they want.
   // First one is the primary; additional paths get appended via --extra-vault-path
   // (a flag the daemon parses into multiple watch targets).
-  const [vaultPaths, setVaultPaths] = React.useState<string[]>([""]);
+  // Initial state = previously saved paths (so the UI remembers what's
+  // installed), or one blank row for first-time setup.
+  const [vaultPaths, setVaultPaths] = React.useState<string[]>(
+    savedPaths.length > 0 ? savedPaths : [""],
+  );
+  const [savingPaths, setSavingPaths] = React.useState(false);
+  const [savedNotice, setSavedNotice] = React.useState<string | null>(null);
   const vaultPath = vaultPaths[0] ?? "";
   const extraPaths = vaultPaths.slice(1).filter((p) => p.trim());
   const placeholder = vaultName
@@ -122,14 +131,46 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
             </div>
           ))}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-3"
-          onClick={() => setVaultPaths([...vaultPaths, ""])}
-        >
-          <Plus className="h-3 w-3" /> Add another folder
-        </Button>
+        <div className="mt-3 flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVaultPaths([...vaultPaths, ""])}
+          >
+            <Plus className="h-3 w-3" /> Add another folder
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            disabled={savingPaths}
+            onClick={async () => {
+              setSavingPaths(true);
+              setSavedNotice(null);
+              try {
+                const trimmed = vaultPaths.map((p) => p.trim()).filter(Boolean);
+                const res = await fetch("/api/orgs", {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ vaultPaths: trimmed }),
+                });
+                if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+                setSavedNotice(`Saved ${trimmed.length} folder${trimmed.length === 1 ? "" : "s"}.`);
+                setTimeout(() => setSavedNotice(null), 3000);
+              } catch (err) {
+                setSavedNotice(`Save failed: ${(err as Error).message}`);
+              } finally {
+                setSavingPaths(false);
+              }
+            }}
+          >
+            {savingPaths ? "Saving..." : "Save folders"}
+          </Button>
+          {savedNotice && (
+            <span className={savedNotice.startsWith("Save failed") ? "text-xs text-red-600" : "text-xs text-green-600"}>
+              {savedNotice}
+            </span>
+          )}
+        </div>
         <p className="mt-3 text-xs text-muted-foreground">
           <strong>Why typing?</strong> Web browsers can&rsquo;t open native
           file pickers for security reasons — they only see files you
@@ -137,6 +178,11 @@ export function DaemonInstallClient({ userTag, vaultName, syncKey }: Props) {
           absolute path: open Finder → right-click the folder → Get Info →
           look for &ldquo;Where:&rdquo; → copy that line. Or in Terminal:
           <code className="ml-1 rounded bg-muted px-1">cd /path/to/folder && pwd</code>.
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <strong>Note:</strong> Click &ldquo;Save folders&rdquo; to remember
+          your list — the page will show them next time. To apply changes
+          to a running daemon, re-run the install command below.
         </p>
       </div>
 
