@@ -545,3 +545,322 @@ mark Thursday checklist items as they're completed, append
 Richard's install section after Thursday.
 
 **Owners:** Keegan (product + execution), Claude (code + docs).
+
+---
+
+# Part Two — Richard Lackey's Install (2026-05-14)
+
+> **Status:** Second non-Keegan install end-to-end. 5 new must-fixes
+> shipped live during the call (MF-10 → MF-14). All Jake-era fixes
+> held up — none of the 16 bugs from his install recurred for Richard.
+> **Outcome:** Richard's brain live, three cloud-synced vault folders
+> watched, custom connector connected, Composio connections imported
+> and labeled. Install completed in well under Jake's 3-hour mark
+> despite hitting an entirely new class of issues (cloud-offloaded
+> files).
+> **What this part is for:** capture the new failure modes that hit,
+> the fixes shipped, and the lessons for future installs.
+
+---
+
+## 10. Executive summary — Richard's install
+
+Phase 8 v2 MVP shipped Monday 2026-05-11. Jake's install Tuesday
+caught 16 bugs. Tonight's MF-1 through MF-9 patches shipped Wednesday
+covered every known Keegan-hardcode. **Richard's install Thursday
+2026-05-14 caught zero Jake-era regressions** but uncovered a new
+class of issues centered on cloud-synced vault folders and Composio
+account labels.
+
+**Severity classification:**
+
+| Severity | Description | Count |
+|---|---|---|
+| Critical | Data isolation breach | **0** |
+| Blocker | User couldn't progress past a step | 2 |
+| High-friction | User could progress but path was broken or confusing | 2 |
+| Polish | Cosmetic / UX nits | 1 |
+| **Total** | | **5** |
+
+**Time:** about 90 minutes of active install time. Down from Jake's
+~3 hours. The Jake-era fixes (DCR, AsyncLocalStorage for MCP,
+generic deriveSpaceIdFromPath, slug strips `'s`, MANAGE_CONNECTIONS
+trim + warning, etc.) all paid off — none of those classes hit again.
+
+**Single biggest learning:** **cloud-synced vault folders are the
+dominant real-world pattern**, not the Obsidian-on-local-disk
+pattern we'd built around. Richard's three vault paths are Google
+Drive, Dropbox, and iCloud Drive — all of which dehydrate files
+("Optimize Mac Storage" / "Stream files" / etc.) by default. The
+daemon's chokidar watcher + extraction libraries assume materialized
+local files.
+
+---
+
+## 11. The bugs (in order they hit)
+
+Same format as Part One: what hit, root cause, fix, severity.
+
+### 11.1 Multi-folder install command only watches the first folder
+
+- **What Richard saw:** UI banner on `/settings/daemon` said
+  "additional folders are passed through to the config and will be
+  live-watched in the next update (v2.1)." He had 5 folders.
+- **Root cause:** `agent/src/index.ts` used `loadConfig()` (single
+  config) for the watch loop. `loadAllConfigs()` existed but wasn't
+  wired up. EXTRA_VAULT_PATHS env var was being written to the plist
+  but never read by chokidar.
+- **Fix shipped:** `29a1e77` (MF-10) — refactored `fullScan` and
+  `watch` to iterate `loadAllConfigs()`. Each config gets its own
+  chokidar instance using ITS vaultRoot for relative-path
+  computation. Shared ApiClient (extras inherit apiKey + apiBase).
+  Pull-down still uses primary only (platform doesn't distinguish
+  vault roots — v2.1 design question). SIGINT/SIGTERM close all
+  watchers. UI banner flipped to emerald "all N folders watched."
+- **Severity:** Blocker (claim-broken UX — multi-folder users
+  couldn't actually use multi-folder).
+
+### 11.2 npm install errored on cache permissions
+
+- **What Richard saw:** `npm error code EEXIST` / `npm error EACCES:
+  permission denied, mkdir '/Users/GFEGROUP1/.npm/_cacache/...'`
+- **Root cause:** Generic npm-on-macOS issue — someone (probably
+  Richard or his admin) had at some point run `sudo npm install`,
+  leaving files in `~/.npm/` owned by root that non-root npm can't
+  write to. Not our codebase.
+- **Fix:** `sudo chown -R $(whoami) ~/.npm` (one-liner Richard ran).
+- **Severity:** Blocker (full install dead until cache ownership
+  fixed). **Worth documenting in the Runbook**.
+- **Lesson:** add this to pre-install checklist or surface it as a
+  detectable error during install. The error message npm gives is
+  clear; we just need to tell users to expect it.
+
+### 11.3 Cloud-offloaded files: "unknown system error -11, read"
+
+- **What Richard saw:** First sync completed, but most binary file
+  pages showed "file stored. extract failed: unknown system error
+  -11, read." Files cataloged with metadata + Obsidian deep-link,
+  but content not indexed.
+- **Root cause:** macOS returns errno -11 (EAGAIN-ish) when you try
+  to `fs.readFile()` a dehydrated cloud file. Richard's three vault
+  paths (Google Drive, Dropbox, iCloud) all default to offloaded-by-
+  default. The extraction libraries (pdf-parse, mammoth, xlsx)
+  internally call `read()` which fails on dehydrated stubs.
+- **Fix shipped:** `c83af7d` (MF-11) — two parts:
+  - `agent/src/extract.ts` catches the cloud-offload error class
+    and surfaces a useful message: "extract skipped: file offloaded
+    to cloud. Set your sync folder to 'Always Keep on this Mac' /
+    'Available Offline' / 'Mirror files'."
+  - `agent/src/sync.ts` bumped the file_artifact contentHash salt
+    from v3 → v4. Same pattern as when pdf-parse was fixed. Forces
+    every binary file to re-hash → server sees them as changed →
+    re-extracts. Users can fix their cloud settings, restart daemon,
+    and re-extraction happens on the startup full-scan.
+- **Remediation Richard did:** Google Drive → switched from "Stream
+  files" to "Mirror files." Dropbox → "Make available offline."
+  iCloud → turned off "Optimize Mac Storage." Re-ran install command
+  → daemon restarted → re-extraction kicked off.
+- **Severity:** Blocker for content search. Files were cataloged
+  (search-by-title worked) but search-by-content didn't until fix +
+  remediation.
+
+### 11.4 Composio connection labels were cryptic IDs
+
+- **What Richard saw:** `/settings/sync` showed connections as
+  "gmail (gmail_xxx-yyy)" instead of "gmail — richard@..."
+  for most of his accounts.
+- **Root cause:** Composio's `MANAGE_CONNECTIONS` response for
+  Richard's accounts didn't include the `alias` field that our
+  parser looks for. Different shape from Keegan's accounts. We had
+  no fallback enrichment.
+- **Fixes shipped:**
+  - `3d79873` (MF-12) — inline rename UI on `/settings/sync`. Click
+    a label → input field → type new name → Enter saves. Plus a
+    PATCH endpoint accepts `label` field. Quick win for any user
+    whose Composio aliases are missing.
+  - `c5db526` (MF-13) — per-toolkit profile-call enrichment. For
+    each connection, the refresh endpoint now does a follow-up call
+    to the toolkit's profile/whoami tool (`GMAIL_GET_PROFILE`,
+    `GOOGLECALENDAR_LIST_CALENDARS`, `NOTION_GET_ABOUT_ME`, etc.)
+    and uses the extracted email/username as the label. Existing
+    cryptic-fallback rows get UPDATED on Refresh; user-renamed
+    rows are preserved. Response reports `relabeled` count.
+- **Severity:** High-friction (could progress but path was confusing
+  — users have to remember which `gmail_xxx-yyy` is which account).
+
+### 11.5 Daemon page didn't remember configured vault paths
+
+- **What Keegan noticed (after Richard left):** the `/settings/daemon`
+  page starts with a blank input every visit. The daemon is watching
+  Richard's three folders (live, working), but if anyone wanted to
+  add a 4th folder they'd have to remember and re-type all three.
+- **Root cause:** Vault paths only lived in the user's launchd plist
+  on disk. DB had no record. UI had nothing to display.
+- **Fix shipped:** `a3b6e0f` (MF-14) — `organizations.vault_paths`
+  jsonb column (migration `0012`); PATCH `/api/orgs` accepts
+  `vaultPaths`; daemon page renders previously-saved paths;
+  "Save folders" button persists changes. To actually apply changes
+  to a running daemon, user still re-runs install command (hot-reload
+  is a v2.1 feature — daemon would need to poll for config changes).
+- **Severity:** High-friction (general UX paper-cut, not a bug per
+  se — feature gap).
+
+---
+
+## 12. Root cause clustering — Richard's lessons
+
+### 12.1 Cloud-synced vault is the real-world default (not Obsidian-on-disk)
+
+We built the daemon assuming a local Obsidian vault folder on the
+user's disk. **Richard's setup is more representative**: three
+different cloud-sync apps holding work documents. This is going to
+be the norm, not the exception, for non-developer users.
+
+**What this means for the product:**
+- Pre-install checklist must include "set cloud folders to keep-
+  downloaded" guidance per provider (Google Drive Stream vs Mirror,
+  Dropbox Local vs Online-Only, iCloud Optimize Mac Storage off).
+- Long-term: detect cloud-synced paths at install time and warn the
+  user. macOS exposes `xattr -p com.apple.metadata:com_apple_iCloudHasItem`
+  and similar markers — we can detect and prompt.
+- Even longer-term: an extraction-retry policy that materializes
+  the file via `read()` and waits for it to fault in. Possible but
+  finicky across three different cloud providers.
+
+### 12.2 Composio response shape varies across users
+
+Composio's MANAGE_CONNECTIONS response includes `alias` for some
+users (Keegan's accounts have it because he set aliases in
+Composio's web UI). Other users (Richard) get accounts without
+aliases. **We can't rely on alias being present.**
+
+The fix (MF-13's per-toolkit enrichment) is the right pattern: do a
+follow-up call to the toolkit's own profile/whoami tool. Each
+toolkit has one, and they reliably return the account's email or
+identifier. Generalized in `PROFILE_ENRICHERS`.
+
+**Encoded:** the discipline rule that comes out of this is —
+**"don't trust Composio's account metadata; verify with a per-tool
+profile call."** Belongs in the Runbook's "Adding a new toolkit
+adapter" section.
+
+### 12.3 Server-side state of truth needs to lead, not the plist
+
+MF-14 is a specific example of a broader pattern: **the DB should
+be the source of truth**, not the user's local plist. Vault paths,
+sync key state, daemon mode (on/off), etc. — all should be
+DB-canonical, with the daemon reading from a per-user config
+endpoint at startup. This sets us up for hot-reload (daemon polls
+config) and remote management (turn off a misbehaving daemon from
+the dashboard).
+
+For now: MF-14 brings vault paths into the DB. Future work: bring
+the rest of the daemon config in too.
+
+---
+
+## 13. What's still broken / unaddressed (carry forward)
+
+Still on the list from Part One (Jake) — none of these blocked Richard:
+
+| # | Item | Severity for next install |
+|---|---|---|
+| D-1 | Encryption at rest for API keys (LLM, Composio, OAuth) | Low — internal threat model only |
+| D-2 | `org_memberships` table + invites | Required when first multi-member org signs up |
+| D-9 | DCR registration_access_token (abuse prevention) | Low — token-rotation handles it for now |
+| Stuck-conflict daemon loop | Daemon keeps logging "will push local back up" but never does | Annoying log spam, not functional break |
+| `/api/operating-instructions` 401 | Bearer token in global CLAUDE.md mismatches prod env var | Affects live Profile.md sync; users fall back to local copy |
+| Clerk dev-mode in production | Free-tier dev instance still running prod | Worth switching before user #5 |
+| No installer-package for non-technical users | Need Apple Developer cert ($99/yr) | Required when onboarding non-Terminal users |
+
+New items from Richard:
+
+| # | Item | Severity |
+|---|---|---|
+| R-1 | Cloud-offload detection at install time | High — every cloud-vault user will hit this |
+| R-2 | Daemon hot-reload (poll config from platform) | Medium — install-to-apply-changes is clunky |
+| R-3 | Cross-vault path collision handling | Medium — if same filename exists in two vault roots, platform sees them as the same file |
+| R-4 | Pre-install npm cache permission check | Low — easy to fix when it hits |
+
+---
+
+## 14. Thursday lessons → discipline rules
+
+Following ADR-038 Rule 5 (every install gets a post-mortem with new
+pattern detection), here are candidate rules emerging from Richard's
+install:
+
+### 14.1 (Add to Runbook) Pre-install: cloud-vault setup
+
+For users whose vault paths point at cloud-synced folders, surface
+the keep-downloaded settings BEFORE the daemon install. This is the
+single biggest friction class for non-Obsidian users.
+
+### 14.2 (Add to ADR-038 or new ADR) Don't trust external API metadata
+
+When integrating an external service that returns account metadata
+(Composio's MANAGE_CONNECTIONS, future Linear API, etc.), don't
+assume optional fields will be present. **Always have a fallback
+enrichment path** using the service's own profile/whoami tool.
+
+### 14.3 (Add to discipline rules) Server-side state of truth
+
+Anything user-facing that's persisted somewhere (vault paths,
+daemon mode, Composio routing prefs, etc.) should live in the DB
+first, with daemon/client config DERIVED from that. Plist/local
+config is a deployment artifact, not the source of truth.
+
+---
+
+## 15. What worked (Part Two)
+
+Worth naming again:
+
+- **Zero Jake-era regressions.** All 16 fixes from Tuesday + the
+  MF-6 through MF-9 pre-Thursday batch held up. AsyncLocalStorage,
+  DCR, deriveSpaceIdFromPath, slug strip, MANAGE_CONNECTIONS trim,
+  multi-vault path argv — every one worked first time for Richard.
+- **Live-fix-and-redeploy loop still fast.** Same 60-90s deploy
+  cadence. Five fixes shipped during the call (~90 minutes total)
+  vs. Jake's 19 fixes in ~3 hours. Velocity is improving.
+- **Path picker (Local vault / Cloud-only) on the onboarding
+  checklist worked as expected.** Richard picked local, daemon
+  step stayed visible, others not affected.
+- **Auto-polling on the onboarding checklist** ticked his daemon
+  step green automatically once the first sync fired. No manual
+  refresh needed.
+- **The daemon's multi-vault support** (shipped live in MF-10)
+  worked first time. All three of his vault roots got their own
+  chokidar watcher. No code that needed iteration.
+- **Inline rename UI** on `/settings/sync` shipped before the
+  enrichment fix — useful immediate escape valve for users with
+  cryptic labels.
+
+---
+
+## 16. Carry-forward to next install
+
+If a third user signs up before we finish v2.1, the pre-install
+checklist becomes:
+
+1. **Cloud-vault setup** (NEW) — if their vault is in Google Drive,
+   Dropbox, iCloud, or OneDrive, set the folder to keep-downloaded
+   BEFORE running the install command.
+2. npm cache permissions (NEW) — `sudo chown -R $(whoami) ~/.npm`
+   is the standard fix for `EACCES` during install.
+3. Run the Keegan-hardcode audit + fresh-account dogfood (per ADR-038
+   Rules 1 + 4).
+4. Confirm Vercel deploy is green + DCR endpoint healthy.
+
+After-install:
+1. Append a section to this doc (per ADR-038 Rule 5).
+2. Watch the daemon log for the first 10 minutes of sync — flag any
+   "extract skipped" / "extract failed" lines.
+3. Verify search-by-content actually returns hits, not just
+   search-by-title.
+
+**Note for ourselves:** the velocity from Jake → Richard improved
+because we'd already done the discipline-rule pass. The velocity
+from Richard → Rafael (or whoever's next) will improve again because
+we just added the cloud-vault + npm-cache rules. Each install adds
+to the kit.
