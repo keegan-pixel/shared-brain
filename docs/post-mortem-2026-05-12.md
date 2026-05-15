@@ -864,3 +864,251 @@ because we'd already done the discipline-rule pass. The velocity
 from Richard → Rafael (or whoever's next) will improve again because
 we just added the cloud-vault + npm-cache rules. Each install adds
 to the kit.
+
+---
+
+# Part Three — The 600k Vercel Edge Request Incident (2026-05-15)
+
+> **Status:** Incident response. Post-Richard-install runaway daemon
+> traffic detected ~18 hours after his install completed. Root cause
+> identified + shipped. Lessons captured here as Part Three.
+> **Outcome:** Two-tier defense (rate limiter at gate, root-cause fix
+> in daemon) shipped within 90 minutes of detection.
+> **What this part is for:** capture the new failure mode that hit,
+> the diagnosis path, the fix, and the discipline rules.
+
+---
+
+## 17. Incident summary
+
+**Detection:** Vercel emailed Keegan that the project had received
+~600,000 edge requests that morning — astronomical vs. normal ~few
+thousand. Keegan flagged this as a possible DDoS.
+
+**Reality:** Not an attack. **Richard's daemon was in a false-positive
+feedback loop with his cloud-sync apps** (Google Drive, Dropbox,
+iCloud), generating ~12 POSTs/second to `/api/sync/wiki` for the
+~18 hours since his install. ~12/sec × 18h ≈ 770k requests; Vercel's
+~600k was a partial window.
+
+**Severity:** **Blocker for sustained operation.** Hobby plan caps
+at 1M edge middleware invocations/month — Richard's daemon alone
+was burning the entire monthly cap in ~2 days. Keegan upgraded to
+Pro mid-incident to buy headroom.
+
+---
+
+## 18. Root cause
+
+The daemon's hash for binary files (file_artifact) was:
+
+```
+sha1('v4|<path>|<size>|<mtimeMs>|blob:<0|1>')
+```
+
+**mtime is the smoking gun.** Cloud-sync apps periodically touch
+files for non-content reasons:
+- Metadata updates from the cloud server (modified time, sharing
+  permissions, etc.)
+- Sync state changes (file moves between "offloaded" and "downloaded")
+- Materialization when a previously-offloaded file gets pulled local
+- App-level housekeeping (Dropbox's `.dropbox.cache` operations)
+
+Every cloud touch → new mtime → new hash → daemon thinks "content
+changed" → POSTs to `/api/sync/wiki`. Server-side dedup recognized
+that the contentHash didn't match an existing vault_sync_log row
+(because the hash literally was different), wrote a new row, and
+returned 200. But on the next chokidar fire 80ms later, the same
+file got POSTed again with a slightly-different mtime, repeat.
+
+**Why this didn't bite Jake or Keegan:** Jake's daemon was watching
+local Obsidian folders (no cloud sync). Keegan's daemon watches
+`~/Documents/ViaOps` which is a regular local folder. Richard is
+the first user with three cloud-synced vault paths.
+
+**Why we shipped v4 yesterday and made it worse:** MF-11 yesterday
+bumped the hash salt from v3 → v4 to force re-extraction after
+fixing the cloud-offload error handling. That re-hash invalidated
+all of Richard's prior vault_sync_log entries and triggered a fresh
+mass-resync. The first wave was legitimate (~3,800 binary files);
+every wave after that was the runaway feedback loop.
+
+---
+
+## 19. Diagnosis path (what worked, what didn't)
+
+### 19.1 First attempt: Composio Vercel API (didn't work)
+
+Keegan said he'd connected Vercel via Composio. Tried
+`VERCEL_GET_DEPLOYMENT_LOGS2` (returned empty — build logs only,
+not runtime), then `VERCEL_GET_DEPLOYMENT_EVENTS2` (returned build
+events, not runtime request data). **Vercel's REST API does NOT
+expose per-path runtime invocations on Hobby plan.** Composio can
+inherit this limitation faithfully but can't bypass it.
+
+### 19.2 Second attempt: our own DB-level signals (partial)
+
+Wrote `scripts/traffic-audit.ts` to count:
+- `mcp_request_log` rows (59 in 24h — normal)
+- `activity_feed` rows (6,720 in 24h, dominated by `sync_wiki_create` + `sync_wiki_update`)
+- `vault_sync_log` rows (3,794 in 24h)
+
+This confirmed daemon traffic was HEAVY but didn't reveal the
+runaway loop pattern. 3,794 DB-write counts is way less than 600k
+edge requests — the mismatch hinted the issue was POST-but-dedup-
+skipped, not actual writes. But couldn't see the rate from this
+alone.
+
+### 19.3 Third attempt: direct Vercel MCP server (worked)
+
+Keegan added Claude's direct Vercel MCP connection (separate from
+Composio's Vercel toolkit). It exposed `get_runtime_logs` which is
+the right tool. Pulled 100 logs over the last 6 hours. Output
+showed **49 POSTs to `/api/sync/wiki` in a single 4-second window**
+(15:01:19 → 15:01:23). Pattern repeated across the log slice.
+
+**Smoking gun.** ~12 req/sec sustained from one daemon = ~1M/day.
+The 600k matched.
+
+### 19.4 Lesson
+
+**Direct Vercel MCP > Composio Vercel toolkit for our purposes.**
+Composio is great for cross-app workflows but inherits whatever the
+upstream API exposes. The direct Claude Vercel connector has a
+larger surface (including `get_runtime_logs`). Keep both connected.
+
+---
+
+## 20. Fix shipped (MF-15 + MF-16)
+
+### MF-15 — Defense layer (commit `8a0ae46`)
+
+`src/proxy.ts` — Rate-limit middleware:
+- 60 req/min/IP for unauthenticated public routes
+- 600 req/min/IP for authenticated routes
+- Skips `/api/sync/*` and `/api/cron/*` so legitimate daemon bursts
+  aren't throttled
+- In-memory sliding window (Map keyed by `scope:ip`)
+- 429 with Retry-After header
+- Lazy cleanup every 5 min
+- **Limitation:** Vercel serverless model means each lambda instance
+  has its own Map — state isn't shared across instances. Speed bump,
+  not wall. Proper fix: Upstash or Vercel KV (see roadmap).
+
+`src/components/onboarding-checklist.tsx` — Polling tightening:
+- Interval bumped 8s → 30s (~25% of prior traffic)
+- 5-min auto-stop so a forgotten tab can't generate thousands of
+  requests overnight. User hits Refresh to re-arm.
+
+`scripts/traffic-audit.ts` — Diagnostic script for future incidents.
+
+### MF-16 — Root cause fix (commit `3d98d48`)
+
+`agent/src/sync.ts`:
+
+1. **Hash bumped v4 → v5, mtime removed:**
+   ```
+   sha1('v5|<path>|<size>|blob:<0|1>')
+   ```
+   Same path + same size + same blob-state = same hash regardless
+   of how many times cloud-sync apps touch the file. Collision risk
+   (same-path / same-size / different-content) is vanishingly rare
+   for real-world docs — any meaningful edit changes byte count.
+
+2. **Client-side in-memory dedup map:**
+   `lastPushedHash: Map<absPath, hash>` lives for the daemon's
+   session. Before any POST, check if current hash matches what
+   we've already pushed. If yes, skip the POST entirely — saves the
+   Vercel edge request before it leaves the daemon. `recordPush()`
+   called at each successful `api.syncWiki/syncItem/syncActivity`
+   call site. Resets on daemon restart (intentional — full-scan
+   re-establishes the map on first sync after restart).
+
+**For Richard:** he needs to re-run the install command from
+`/settings/daemon`. Daemon restart will:
+- Pick up v5 hash (one-time re-sync of his ~3,800 binary files)
+- Initialize empty `lastPushedHash` map
+- Run full-scan → populate the map
+- Watch mode → only POST when content actually changes (size diff)
+
+Expected traffic: from ~12/sec → essentially zero between real
+edits.
+
+---
+
+## 21. Discipline lessons
+
+### 21.1 mtime is unreliable for change detection in cloud-synced contexts
+
+This was a Keegan-and-Jake-local-disk-only assumption baked in
+since Phase 2. mtime works for Obsidian-on-disk; it's poisonous for
+any cloud-synced folder. **For multi-tenant products, NEVER use
+mtime as the primary change-detection signal.** Use content hash or
+(if that's too expensive) size + content-hash-on-size-change.
+
+### 21.2 "Server dedupes it anyway" is not enough
+
+We had server-side dedup (`vault_sync_log` row match by path +
+contentHash). We thought that was sufficient because "the server
+returns skipped quickly." But every dedup-skipped POST still:
+1. Hits the Vercel edge
+2. Runs the auth middleware
+3. Runs the route handler
+4. Does at least one DB query (lookup before insert)
+
+A POST that returns "skipped" still costs everyone (Vercel + DB +
+network). **Client-side dedup is the real ratepayer.** Always
+combine.
+
+### 21.3 Watch your daemon traffic shape, not just the totals
+
+3,794 DB writes in 24h looked reasonable in the audit. We almost
+called it acceptable. The 600k Vercel-reported edge requests were
+the actual signal — and the ratio (600k POSTs : 3,794 DB writes =
+158x) was the smoking gun for "dedup-skipped storm." **Build a
+metric for "POSTs that return skipped" so we'd catch this earlier
+next time.** Could be a counter in vault_sync_log or a
+`/api/status` field.
+
+### 21.4 Add this to ADR-038 (multi-tenant discipline rules)
+
+**Rule 6 — Don't use volatile filesystem metadata for change
+detection.** mtime, ctime, atime, etc. can be churned by:
+- Cloud sync apps
+- Backup software
+- Antivirus / spotlight indexing
+- Container/VM clock drift
+
+For change detection, use either:
+- Content hash (best, but expensive for binaries)
+- Size (cheap, catches >99% of real edits, but rare false negatives)
+- Size + content hash on size-change (best balance)
+
+NEVER mtime as the primary signal in a multi-tenant product.
+
+---
+
+## 22. Carry-forward
+
+| # | Item | Severity |
+|---|---|---|
+| INC-1 | Upstash / Vercel KV migration for distributed rate-limiting (current in-memory is per-lambda) | 🟠 Pre-#5 |
+| INC-2 | Add "dedup-skipped POST" counter to vault_sync_log so we'd catch the next runaway in monitoring | 🟢 Quality of life |
+| INC-3 | Daemon-side circuit breaker: if POST rate exceeds N/sec for M minutes, log warning + back off | 🟢 Quality of life |
+| INC-4 | Enable Web Analytics on Vercel Pro (now free for Keegan post-upgrade) so per-path data is always available | 🟢 Now-easy |
+| INC-5 | Document the v5 hash format + the dedup map in the Runbook so future contributors don't accidentally regress | 🟢 Quality of life |
+
+---
+
+## 23. What worked
+
+- **Direct Vercel MCP connection** — once Keegan added it, the
+  diagnosis took 30 seconds. Without it we'd have been stuck.
+- **In-memory dedup map** is a small change with huge impact.
+  Sometimes the right fix is one Map.
+- **Hash version-bumping** as a forced-replay mechanism continues
+  to be the right pattern for daemon-side hash changes (v3 → v4
+  → v5 all worked the same way).
+- **Pro plan upgrade timing** — Keegan upgraded mid-incident, which
+  was both the right call AND meant we could ship a fix without
+  panicking about overages while doing it.

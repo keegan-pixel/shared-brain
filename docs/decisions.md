@@ -100,6 +100,32 @@ boring), append a section to
 post-mortem) capturing what hit. If a new failure-mode pattern
 emerges, add it to the discipline rules here.
 
+### Rule 6 — Don't use volatile filesystem metadata for change detection
+
+Added 2026-05-15 after the 600k Vercel edge-request incident (see
+Part Three of the post-mortem doc). Richard's daemon was POSTing
+to `/api/sync/wiki` at ~12/sec because the binary-file hash
+included `mtime`, and cloud-sync apps (Google Drive / Dropbox /
+iCloud) constantly touch mtime without content actually changing.
+
+**Never use mtime, ctime, or atime as the primary change-detection
+signal in any multi-tenant product.** These get churned by:
+- Cloud sync apps (Google Drive, Dropbox, iCloud, OneDrive)
+- Backup software (Time Machine, Backblaze, etc.)
+- Spotlight indexing / antivirus
+- Container/VM clock drift
+
+Use instead:
+- **Content hash** — best, but expensive for large binaries
+- **Size only** — cheap, catches >99% of real edits, rare false
+  negatives (same-path / same-size / different-content collision)
+- **Size + content hash on size-change** — best balance
+
+And **always pair server-side dedup with client-side dedup**. A
+POST that the server returns "skipped" for still costs the edge
+request, the auth middleware, the route handler, and at least one
+DB query. Client-side dedup skips the request entirely.
+
 ### Why these matter
 
 Without rule #1, future ViaOps clients (Richard Thursday, more
