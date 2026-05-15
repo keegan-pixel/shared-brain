@@ -9,6 +9,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/sse",
   "/api/message",
   "/api/sync(.*)",
+  // Phase 8 v2 — daemon self-report endpoint (Bearer auth in the route).
+  "/api/daemon/(.*)",
   // Phase 6: serves Profile.md to MCP clients (Bearer auth in the route).
   "/api/operating-instructions",
   // Phase 4b: cron endpoint for background AI edges (CRON_SECRET / MCP_API_KEY).
@@ -35,6 +37,7 @@ const isPublicRoute = createRouteMatcher([
 const skipRateLimit = createRouteMatcher([
   "/api/sync(.*)",
   "/api/cron/(.*)",
+  "/api/daemon/(.*)",
 ]);
 
 // ────────────────────────────────────────────────────────────────────────

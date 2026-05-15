@@ -78,6 +78,21 @@ async function fullScan(args: Args) {
     console.log(`[sync] multi-vault mode: ${configs.length} folders configured`);
   }
 
+  // MF-17 — self-report config to the platform so /settings/daemon
+  // shows what the daemon is actually watching, regardless of whether
+  // the user clicked "Save folders" during install. Best-effort: failure
+  // here doesn't block sync.
+  if (!args.dryRun) {
+    try {
+      const allPaths = configs.map((c) => c.vaultRoot);
+      const vaultName = process.env.OBSIDIAN_VAULT_NAME?.trim() || null;
+      await api.reportConfig({ vaultPaths: allPaths, vaultName });
+      console.log(`[sync] reported config (${allPaths.length} vault paths) to platform`);
+    } catch (err) {
+      console.warn(`[sync] config self-report failed (non-fatal): ${(err as Error).message}`);
+    }
+  }
+
   // Phase F4d — pull-down BEFORE push. Materialize any platform-side
   // entries into the LOCAL primary vault. Platform doesn't distinguish
   // vault roots (filePath is a single string), so pull-down only

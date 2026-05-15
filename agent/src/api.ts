@@ -83,6 +83,18 @@ export class ApiClient {
   }
 
   /**
+   * MF-17 — daemon reports its current config to the platform so
+   * `/settings/daemon` UI reflects what the daemon is actually watching.
+   * Idempotent: replaces existing org.vault_paths each call.
+   */
+  reportConfig(input: { vaultPaths: string[]; vaultName?: string | null }) {
+    return this.req<{ ok: boolean; vault_paths: string[]; vault_name: string | null }>(
+      "/api/daemon/config",
+      { body: input },
+    );
+  }
+
+  /**
    * Phase F4d — pull wiki pages updated on the platform since `since`,
    * for the local agent to materialize as markdown files in the vault.
    * `since` may be omitted for the agent's first-ever pull (defaults to
