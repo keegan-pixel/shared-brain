@@ -12,6 +12,30 @@ import { parseMarkdown, parseTasks } from "./parser.ts";
 type ClientCacheEntry = { spaceId: string; defaultProjectId: string };
 const clientCache = new Map<string, ClientCacheEntry>();
 
+/**
+ * In-memory dedup map for the daemon's lifetime.
+ *
+ * Maps absolute file path → last successfully-synced hash.
+ *
+ * Cloud-sync apps (Google Drive, Dropbox, iCloud) periodically TOUCH
+ * files (metadata updates, sync-state changes) even when content
+ * hasn't changed. chokidar fires a `change` event for each touch.
+ * Without this map, we'd POST to /api/sync/wiki for every touch,
+ * generating ~12 requests/second of dedupe-skipped traffic — exactly
+ * the runaway pattern that caused the 600k Vercel edge requests in
+ * 2026-05-15's incident.
+ *
+ * With this map: on every change event we compute the hash; if it
+ * matches what we've already pushed, we skip the POST entirely.
+ *
+ * Resets on daemon restart — that's intentional. After restart,
+ * full-scan pushes everything once, then this map carries us until
+ * actual content changes.
+ *
+ * Shipped 2026-05-15 (MF-16) — see Outstanding Items roadmap.
+ */
+const lastPushedHash = new Map<string, string>();
+
 export type SyncResult =
   | { ok: true; action: "created" | "updated" | "skipped" | "ignored"; reason?: string }
   | { ok: false; error: string };
@@ -48,10 +72,17 @@ export async function syncOne(
   }
 
   // For file_artifact (non-markdown), we never read content into memory.
-  // Hash the path + size + mtime + blob-availability for change detection.
+  // Hash is path + size + blob-availability ONLY — mtime is intentionally
+  // excluded because cloud-sync apps (Google Drive, Dropbox, iCloud)
+  // touch mtime constantly without content actually changing, which
+  // generated a 600k Vercel edge-request spike on 2026-05-15.
   // Including blob:0/1 in the hash means toggling BLOB_READ_WRITE_TOKEN
   // invalidates cached entries, so prior "metadata-only" syncs get
   // re-processed with their bytes uploaded.
+  //
+  // Collision risk: same-path / same-size / different-content. For real-
+  // world documents (PDF, DOCX, images, etc.) this is vanishingly rare;
+  // any meaningful edit changes byte count. Acceptable tradeoff.
   const isFileArtifact = mapping.kind === "file_artifact";
 
   let raw = "";
@@ -60,13 +91,10 @@ export async function syncOne(
     try {
       const stat = await fs.stat(absPath);
       const blobMarker = isBlobConfigured() ? "1" : "0";
-      // v4: bumped 2026-05-14 after improving extract.ts cloud-offload error
-      // handling. Forces a re-extract on every file_artifact so users whose
-      // first sync hit "extract failed: unknown system error -11, read"
-      // (Richard's case — Google Drive / Dropbox / iCloud dehydrated files)
-      // get a clean retry after they set their cloud folders to keep files
-      // downloaded.
-      hash = sha1(`v4|${relative}|${stat.size}|${stat.mtimeMs}|blob:${blobMarker}`);
+      // v5: dropped mtime, see comment above. Hash bump forces one-time
+      // re-sync after this ships so the new (mtime-free) hashes land in
+      // vault_sync_log.
+      hash = sha1(`v5|${relative}|${stat.size}|blob:${blobMarker}`);
     } catch (err) {
       return { ok: false, error: `stat failed: ${(err as Error).message}` };
     }
@@ -78,6 +106,18 @@ export async function syncOne(
     }
     hash = sha1(raw);
   }
+
+  // Client-side dedup: if we've already pushed this exact hash for this
+  // path during the current daemon session, skip the POST entirely.
+  // Catches the cloud-touch feedback loop where chokidar fires `change`
+  // events for files whose content hasn't changed. Server-side dedup
+  // still happens too (vault_sync_log row match) but skipping client-
+  // side saves the Vercel edge request entirely.
+  const lastHash = lastPushedHash.get(absPath);
+  if (lastHash === hash) {
+    return { ok: true, action: "skipped", reason: "client-side dedup (no content change)" };
+  }
+  const recordPush = () => lastPushedHash.set(absPath, hash);
 
   if (opts.dryRun) {
     return { ok: true, action: "updated", reason: `[dry-run] ${mapping.kind}` };
@@ -175,6 +215,7 @@ export async function syncOne(
           extractedText: extracted.text ?? undefined,
           extractedWordCount: extracted.wordCount,
         });
+        recordPush();
         return { ok: true, action: res.skipped ? "skipped" : (res.action as "created" | "updated") };
       }
 
@@ -190,6 +231,7 @@ export async function syncOne(
           frontmatter: parsed.frontmatter,
           tags,
         });
+        recordPush();
         return { ok: true, action: res.skipped ? "skipped" : (res.action as "created" | "updated") };
       }
 
@@ -208,6 +250,7 @@ export async function syncOne(
         });
         // 3) Update activity feed (handled by syncWiki internally; nothing more to do).
         void cache;
+        recordPush();
         return { ok: true, action: res.skipped ? "skipped" : (res.action as "created" | "updated") };
       }
 
@@ -230,6 +273,7 @@ export async function syncOne(
           if (res.action === "created") created++;
           else updated++;
         }
+        recordPush();
         return {
           ok: true,
           action: tasks.length === 0 ? "skipped" : "updated",
@@ -245,6 +289,7 @@ export async function syncOne(
           summary: `${mapping.clientName} meeting: ${parsed.title}`,
           body: parsed.body.slice(0, 4000),
         });
+        recordPush();
         return { ok: true, action: "updated" };
       }
 
@@ -256,6 +301,7 @@ export async function syncOne(
           summary: parsed.title,
           body: parsed.body.slice(0, 4000),
         });
+        recordPush();
         return { ok: true, action: res.skipped ? "skipped" : "updated" };
       }
     }
