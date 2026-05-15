@@ -51,22 +51,36 @@ export function OnboardingChecklist({ initial }: { initial: OnboardingState }) {
   };
 
   // Auto-poll for server-side state changes while onboarding is incomplete.
-  // Without this, the daemon-connected and Claude-connected signals can
-  // lag ~30s after the user finishes the actual install — the page only
-  // updates on manual Refresh. We poll every 8 seconds, only while at
-  // least one step is still pending, and only when the window has focus
-  // (don't burn cycles on background tabs). Stops as soon as everything's
-  // done. See ADR-038 / Jake's post-mortem — "detection lag" was a
-  // high-friction UX issue.
+  // The daemon-connected and Claude-connected signals can lag after the
+  // user finishes the actual install — the page only updates on manual
+  // Refresh otherwise.
+  //
+  // Cadence: 30 seconds (was 8s — tightened 2026-05-15 after the Vercel
+  // edge-request spike. 30s is enough to feel "live" for an install flow
+  // while cutting polling traffic to ~25% of the previous load).
+  //
+  // Gates:
+  //   1. anyPending (no point polling for completed onboarding)
+  //   2. visibilityState === "visible" (don't burn cycles on bg tabs)
+  //   3. autoStopAfterMs (5 minutes of idle) — auto-stops so a forgotten
+  //      tab can't accidentally generate thousands of requests overnight.
+  //      User can hit "Refresh" to re-arm.
   const anyPending = initial.steps.some((s) => s.status === "pending");
   React.useEffect(() => {
     if (!anyPending) return;
     if (typeof document === "undefined") return;
+    const startedAt = Date.now();
+    const AUTO_STOP_AFTER_MS = 5 * 60 * 1000; // 5 minutes
+    const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds
     const tick = () => {
       if (document.visibilityState !== "visible") return;
+      if (Date.now() - startedAt > AUTO_STOP_AFTER_MS) {
+        window.clearInterval(id);
+        return;
+      }
       router.refresh();
     };
-    const id = window.setInterval(tick, 8000);
+    const id = window.setInterval(tick, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [anyPending, router]);
 
