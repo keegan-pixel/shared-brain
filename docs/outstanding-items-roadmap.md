@@ -345,21 +345,35 @@ invite (if/when D2 lands).
 
 ---
 
-### More Composio adapters (Drive, Notion, Slack, HubSpot...)
+### More Composio adapters
 
-**What hits:** Currently only Gmail + Google Calendar wired for
-cron auto-sync. Other toolkits accept the toggle but the cron skips
-them with "No adapter wired yet for toolkit X."
+**Updated 2026-05-15:** Adapter framework shipped in MF-18
+(`src/lib/sync-watchers/adapter.ts`) — new adapters are now ~30-60
+min each instead of 2-4 hours. See `src/lib/sync-watchers/README.md`
+for the step-by-step recipe.
 
-**Plan per toolkit:**
-- **Google Drive:** poll for new files in watched folders → file_document
-  with extracted content. Heavier — content extraction pipeline.
-- **Notion:** poll for new/updated pages in watched workspaces.
-- **Slack:** recent DMs / channel mentions → activity items.
-- **HubSpot:** new contacts / deals → entity creation.
+**Already wired:**
+- ✅ Gmail (`gmail.ts`)
+- ✅ Google Calendar (`calendar.ts`)
 
-**Estimated effort:** 2-4 hours per adapter following the Gmail/
-Calendar pattern.
+**Queued (Richard's other connections + v2.1 roadmap):**
+
+| Toolkit | Composio tool | Use case | Effort | Notes |
+|---|---|---|---|---|
+| Google Drive | `GOOGLEDRIVE_LIST_FILES` (or similar) | Files in watched folders → wiki entries with extracted content | ~1hr | Heaviest of the new ones — content extraction needs pipeline. May need targeted folder filter via sourceFilter. |
+| Zoho Mail | `ZOHO_MAIL_FETCH_EMAILS` or similar | Inbox messages → file_document | ~30 min | Direct mirror of Gmail adapter pattern. |
+| GitHub | `GITHUB_LIST_REPOSITORY_ISSUES` / `_PRS` / `_COMMITS` | Issues, PRs, commits, comments → activity items / wiki entries | ~1hr | High value for dev-flavored work. Scope question: "repos I own" vs "@-mentions"? Use sourceFilter to scope. |
+| Apify | `APIFY_LIST_DATASETS` or `_RUNS` | New dataset items / run completions → wiki entries | ~30-45 min | Niche; useful if user is actively scraping. |
+| Notion | `NOTION_QUERY_DATABASE` / `_LIST_PAGES` | New/updated pages in watched workspaces | ~45 min | High value for users with team Notion. |
+| Slack | `SLACK_LIST_CONVERSATIONS` / `_HISTORY` | DMs / channel mentions → activity items | ~1hr | High volume; needs careful filter (don't ingest every channel). |
+| HubSpot | `HUBSPOT_LIST_CONTACTS` / `_DEALS` | New contacts, deals → entity creation | ~1hr | Highest value for sales-flavored work. |
+
+**Priority order** (suggested, based on Richard's usage + general value):
+1. **Google Drive** — Richard's actively using, highest cross-user value
+2. **Zoho Mail** — simplest port (Gmail clone), validates framework on 3rd toolkit
+3. **GitHub** — high dev value
+4. **Apify** — Richard-specific, knock out quickly
+5. **Notion / Slack / HubSpot** — when next user needs them
 
 ---
 
