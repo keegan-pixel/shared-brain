@@ -30,15 +30,22 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 // Routes that should NOT be rate-limited even though they're public.
-// Sync routes can legitimately receive thousands of POSTs in a burst when a
-// daemon does its initial scan (Richard had ~3,800 files); rate-limiting
-// here would break the install flow. Sync is Bearer-auth'd so abuse risk
-// is bounded by knowing a sync key.
+// Cron is genuinely batch (one big run per day, server-trusted). Daemon
+// config is called only on daemon startup, infrequent and legitimate.
 const skipRateLimit = createRouteMatcher([
-  "/api/sync(.*)",
   "/api/cron/(.*)",
   "/api/daemon/(.*)",
 ]);
+
+// Sync routes get their own (higher) rate-limit tier. Bearer-auth'd
+// daemons can legitimately POST hundreds of files during initial scan,
+// but no daemon should exceed ~10/sec sustained. Cap at 300/min/IP =
+// 5/sec — enough for an initial scan to complete in ~13min for ~3,800
+// files, but cuts the runaway pattern (12/sec) by ~60%.
+// Added 2026-05-16 after the previous-day's 600k incident kept
+// recurring on each of Richard's daemon restarts. See ADR-038 Rule 6
+// + Post-Mortem Part Three.
+const isSyncRoute = createRouteMatcher(["/api/sync(.*)"]);
 
 // ────────────────────────────────────────────────────────────────────────
 // In-memory rate limiter (defense against bot scanning on public routes).
@@ -61,6 +68,7 @@ type RateLimitWindow = {
 const WINDOW_MS = 60_000; // 1-minute sliding window
 const PUBLIC_LIMIT = 60; // 60 req/min/IP for unauthenticated routes
 const AUTHED_LIMIT = 600; // 600 req/min/IP for authenticated routes
+const SYNC_LIMIT = 300; // 300 req/min/IP for sync routes (legit daemon)
 
 const buckets = new Map<string, RateLimitWindow>();
 let lastCleanup = Date.now();
@@ -117,12 +125,22 @@ function rateLimitResponse(retryAfter: number): NextResponse {
 
 export default clerkMiddleware(async (auth, req) => {
   // Rate limiting runs BEFORE auth protection so we cap unauthenticated
-  // scanner traffic. Authenticated requests get a much higher cap.
+  // scanner traffic AND misbehaving authenticated clients (e.g. a
+  // crash-looping daemon that POSTs the same file thousands of times).
   if (!skipRateLimit(req)) {
     const ip = getClientIp(req);
-    const isPublic = isPublicRoute(req);
-    const limit = isPublic ? PUBLIC_LIMIT : AUTHED_LIMIT;
-    const scope = isPublic ? "public" : "authed";
+    let limit: number;
+    let scope: string;
+    if (isSyncRoute(req)) {
+      limit = SYNC_LIMIT;
+      scope = "sync";
+    } else if (isPublicRoute(req)) {
+      limit = PUBLIC_LIMIT;
+      scope = "public";
+    } else {
+      limit = AUTHED_LIMIT;
+      scope = "authed";
+    }
     const check = checkRateLimit(ip, limit, scope);
     if (!check.allowed) {
       return rateLimitResponse(check.retryAfter);

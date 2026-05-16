@@ -4,7 +4,13 @@ import pLimit from "p-limit";
 import { fileURLToPath } from "node:url";
 import { ApiClient } from "./api.ts";
 import { loadAllConfigs, relPath, type SyncConfig } from "./config.ts";
-import { syncOne, walkVault, type SyncResult } from "./sync.ts";
+import {
+  syncOne,
+  walkVault,
+  loadDedupCache,
+  flushDedupCacheNow,
+  type SyncResult,
+} from "./sync.ts";
 import { pullDown } from "./pull.ts";
 
 // Agent dir = where this file lives + ".." (we're in agent/src/, agent dir is one up).
@@ -185,24 +191,38 @@ async function watch(args: Args) {
 
   const closeAll = () => Promise.all(watchers.map((w) => w.close()));
 
-  process.on("SIGINT", () => {
-    console.log("[sync] SIGINT received, stopping watchers…");
+  // Graceful shutdown: flush pending dedup-cache writes before exit so
+  // the next launchd restart loads a complete map.
+  const shutdown = async (signal: string) => {
+    console.log(`[sync] ${signal} received, flushing dedup cache + stopping watchers…`);
     clearInterval(pullTimer);
-    closeAll().then(() => process.exit(0));
-  });
-  process.on("SIGTERM", () => {
-    clearInterval(pullTimer);
-    closeAll().then(() => process.exit(0));
-  });
+    try {
+      await flushDedupCacheNow();
+    } catch {
+      /* swallow — best-effort */
+    }
+    await closeAll();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 (async () => {
   const args = parseArgs();
   try {
+    // Load the persistent dedup cache BEFORE any sync work so the
+    // startup full-scan immediately matches what's already been pushed
+    // and skips the dedup-skipped POST burst.
+    await loadDedupCache();
+
     if (args.mode === "once") await fullScan(args);
     else await watch(args);
   } catch (err) {
     console.error("[sync] fatal:", (err as Error).message);
+    // Try to flush the dedup cache even on a fatal error path so we
+    // don't lose state if the process exits.
+    try { await flushDedupCacheNow(); } catch { /* swallow */ }
     process.exit(1);
   }
 })();

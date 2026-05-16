@@ -147,6 +147,13 @@ function escapeXml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** The repo root is one level up from the agent directory. Used by the
+ *  plist's auto-update step which runs `git pull` from the repo root
+ *  before starting the daemon. */
+function repoRootFromAgent(agentDir: string): string {
+  return resolve(agentDir, "..");
+}
+
 function buildPlist(opts: {
   agentDir: string;
   apiBase: string;
@@ -200,7 +207,7 @@ function buildPlist(opts: {
     <string>/bin/zsh</string>
     <string>-l</string>
     <string>-c</string>
-    <string>cd ${escapeXml(opts.agentDir)} &amp;&amp; npm run sync:watch</string>
+    <string>cd ${escapeXml(repoRootFromAgent(opts.agentDir))} &amp;&amp; (git pull --rebase=false --quiet 2&gt;/dev/null || true) &amp;&amp; cd ${escapeXml(opts.agentDir)} &amp;&amp; npm run sync:watch</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

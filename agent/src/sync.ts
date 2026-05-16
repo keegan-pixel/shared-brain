@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { ApiClient } from "./api.ts";
 import { isBlobConfigured, uploadFileToBlob } from "./blob.ts";
 import type { SyncConfig } from "./config.ts";
@@ -13,28 +15,105 @@ type ClientCacheEntry = { spaceId: string; defaultProjectId: string };
 const clientCache = new Map<string, ClientCacheEntry>();
 
 /**
- * In-memory dedup map for the daemon's lifetime.
+ * Persistent dedup map.
  *
- * Maps absolute file path → last successfully-synced hash.
+ * Maps absolute file path → last successfully-synced hash. Survives
+ * daemon restarts via on-disk JSON cache.
  *
  * Cloud-sync apps (Google Drive, Dropbox, iCloud) periodically TOUCH
  * files (metadata updates, sync-state changes) even when content
  * hasn't changed. chokidar fires a `change` event for each touch.
- * Without this map, we'd POST to /api/sync/wiki for every touch,
- * generating ~12 requests/second of dedupe-skipped traffic — exactly
- * the runaway pattern that caused the 600k Vercel edge requests in
- * 2026-05-15's incident.
+ * Without this map, we'd POST to /api/sync/wiki for every touch.
  *
- * With this map: on every change event we compute the hash; if it
- * matches what we've already pushed, we skip the POST entirely.
+ * MF-16 (2026-05-15) introduced this map in-memory only. The flaw:
+ * launchd `KeepAlive: true` auto-restarts the daemon on any exit
+ * (OOM, crash, sleep/wake, network error). Each restart wiped the
+ * map, triggering a fresh full-scan POST-burst against the empty
+ * map even though the server already had v5 hashes. With Richard's
+ * ~3,800 files × ~3 restarts/day, that's ~11k POSTs/day in pure
+ * dedup-skipped restart-bursts.
  *
- * Resets on daemon restart — that's intentional. After restart,
- * full-scan pushes everything once, then this map carries us until
- * actual content changes.
+ * MF-19 (2026-05-16) persists the map to disk after every successful
+ * push and loads it on daemon startup. Restart → empty restart burst.
+ * Steady state stays steady.
  *
- * Shipped 2026-05-15 (MF-16) — see Outstanding Items roadmap.
+ * Storage: ~/.shared-brain-sync/dedup-cache.json (JSON object of
+ * { absPath: hash }). Atomic writes via rename-after-write. Best-
+ * effort: I/O failure on persistence doesn't break the sync.
  */
 const lastPushedHash = new Map<string, string>();
+
+// Path to the on-disk dedup cache. Co-located with launchd logs in /tmp
+// would be wiped on reboot; ~/.shared-brain-sync/ is more durable and
+// only the daemon writes there.
+const DEDUP_CACHE_DIR = path.join(os.homedir(), ".shared-brain-sync");
+const DEDUP_CACHE_FILE = path.join(DEDUP_CACHE_DIR, "dedup-cache.json");
+
+/** Throttled disk-write timer to avoid hammering the filesystem on
+ *  bursty syncs (e.g. initial scan of 3,800 files). We write at most
+ *  once every 2s after the most-recent change. */
+let pendingFlush: NodeJS.Timeout | null = null;
+let dedupDirty = false;
+
+async function flushDedupCache(): Promise<void> {
+  if (!dedupDirty) return;
+  dedupDirty = false;
+  try {
+    await fs.mkdir(DEDUP_CACHE_DIR, { recursive: true });
+    // Atomic write: write to .tmp then rename. Avoids torn-write on crash.
+    const obj = Object.fromEntries(lastPushedHash);
+    const tmp = `${DEDUP_CACHE_FILE}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(obj), "utf8");
+    await fs.rename(tmp, DEDUP_CACHE_FILE);
+  } catch (err) {
+    // Persistence is best-effort. If it fails, we'd just rebuild the
+    // map on next restart — annoying but not breaking.
+    console.warn(`[sync] dedup cache flush failed (non-fatal): ${(err as Error).message}`);
+  }
+}
+
+function scheduleDedupFlush(): void {
+  dedupDirty = true;
+  if (pendingFlush) return;
+  pendingFlush = setTimeout(() => {
+    pendingFlush = null;
+    void flushDedupCache();
+  }, 2000);
+}
+
+/** Load the dedup cache from disk. Called once on daemon startup before
+ *  any sync work. Silent no-op if the file doesn't exist (first-ever run). */
+export async function loadDedupCache(): Promise<void> {
+  try {
+    const raw = await fs.readFile(DEDUP_CACHE_FILE, "utf8");
+    const obj = JSON.parse(raw) as Record<string, string>;
+    let count = 0;
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof k === "string" && typeof v === "string") {
+        lastPushedHash.set(k, v);
+        count++;
+      }
+    }
+    console.log(`[sync] loaded dedup cache: ${count} entries`);
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("ENOENT")) {
+      console.log("[sync] no dedup cache yet (first run)");
+    } else {
+      console.warn(`[sync] dedup cache load failed (continuing with empty map): ${msg}`);
+    }
+  }
+}
+
+/** Flush any pending dedup writes — call this from SIGINT/SIGTERM
+ *  handlers to make sure we don't lose recent state on graceful shutdown. */
+export async function flushDedupCacheNow(): Promise<void> {
+  if (pendingFlush) {
+    clearTimeout(pendingFlush);
+    pendingFlush = null;
+  }
+  await flushDedupCache();
+}
 
 export type SyncResult =
   | { ok: true; action: "created" | "updated" | "skipped" | "ignored"; reason?: string }
@@ -117,7 +196,10 @@ export async function syncOne(
   if (lastHash === hash) {
     return { ok: true, action: "skipped", reason: "client-side dedup (no content change)" };
   }
-  const recordPush = () => lastPushedHash.set(absPath, hash);
+  const recordPush = () => {
+    lastPushedHash.set(absPath, hash);
+    scheduleDedupFlush();
+  };
 
   if (opts.dryRun) {
     return { ok: true, action: "updated", reason: `[dry-run] ${mapping.kind}` };
