@@ -95,6 +95,24 @@ export class ApiClient {
   }
 
   /**
+   * MF-21 — daemon reports its previous-instance crash log on startup
+   * so we never have to ask the user for /tmp/shared-brain-sync.*.err.
+   * Server stores in activity_feed with action='daemon_crash_report'.
+   */
+  reportCrash(input: {
+    errLog: string;
+    stdoutLog?: string;
+    detectedAt?: string;
+    errMtime?: string;
+    daemonVersion?: string;
+  }) {
+    return this.req<{ ok: boolean; recorded: boolean; reason?: string }>(
+      "/api/daemon/crash-report",
+      { body: input },
+    );
+  }
+
+  /**
    * Phase F4d — pull wiki pages updated on the platform since `since`,
    * for the local agent to materialize as markdown files in the vault.
    * `since` may be omitted for the agent's first-ever pull (defaults to

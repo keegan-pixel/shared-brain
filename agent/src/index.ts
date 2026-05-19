@@ -3,7 +3,7 @@ import path from "node:path";
 import pLimit from "p-limit";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { ApiClient } from "./api.ts";
 import { loadAllConfigs, relPath, type SyncConfig } from "./config.ts";
 import {
@@ -211,6 +211,75 @@ async function watch(args: Args) {
 }
 
 /**
+ * MF-21 — On startup, read the previous-instance err log (if any) and
+ * POST it to the platform. Catches crashes we'd otherwise never see
+ * (SIGKILL from OOM, launchd timeouts, hard exits before our try/catch
+ * runs). After successful report, truncate the file to mark as reported.
+ *
+ * Log paths follow install-daemon's convention:
+ *   /tmp/shared-brain-sync.<userTag>.{log,err} (modern)
+ *   /tmp/shared-brain-sync.{log,err} (legacy — no user-tag set)
+ */
+function logPaths(): { logPath: string; errPath: string } {
+  const tag = process.env.SHARED_BRAIN_USER_TAG?.trim();
+  if (tag) {
+    return {
+      logPath: `/tmp/shared-brain-sync.${tag}.log`,
+      errPath: `/tmp/shared-brain-sync.${tag}.err`,
+    };
+  }
+  return {
+    logPath: "/tmp/shared-brain-sync.log",
+    errPath: "/tmp/shared-brain-sync.err",
+  };
+}
+
+function tailLines(s: string, n: number): string {
+  const lines = s.split("\n");
+  return lines.slice(Math.max(0, lines.length - n)).join("\n");
+}
+
+async function reportCrashIfAny(api: ApiClient): Promise<void> {
+  const { logPath, errPath } = logPaths();
+  try {
+    const errStat = await stat(errPath).catch(() => null);
+    if (!errStat || errStat.size === 0) return; // no err yet, clean startup
+
+    const errContent = await readFile(errPath, "utf8");
+    if (!errContent.trim()) return;
+
+    // Best-effort: also include recent stdout for context.
+    let stdoutContent: string | undefined;
+    try {
+      const stdoutFull = await readFile(logPath, "utf8");
+      stdoutContent = tailLines(stdoutFull, 100);
+    } catch {
+      /* stdout log missing — that's fine */
+    }
+
+    await api.reportCrash({
+      errLog: tailLines(errContent, 200),
+      stdoutLog: stdoutContent,
+      detectedAt: new Date().toISOString(),
+      errMtime: errStat.mtime.toISOString(),
+    });
+
+    // Truncate the err file so we don't re-report the same crash on
+    // the next restart. Best-effort — if truncate fails we just
+    // re-report next time, no harm done.
+    try {
+      await writeFile(errPath, "", "utf8");
+    } catch {
+      /* swallow */
+    }
+    console.log(`[sync] reported previous-instance crash log to platform`);
+  } catch (err) {
+    // Crash-report failure must not block the daemon startup.
+    console.warn(`[sync] crash-report failed (non-fatal): ${(err as Error).message}`);
+  }
+}
+
+/**
  * Restart backoff (MF-20): track when the daemon last started. If we
  * just started < BACKOFF_THRESHOLD_MS ago, sleep before doing any work.
  * Combined with launchd's KeepAlive, this prevents tight crash-loops
@@ -268,6 +337,13 @@ process.on("uncaughtException", (err) => {
     // Backoff if we just crashed-and-restarted. Prevents tight crash-loops
     // from hammering the platform with daemon/config + sync/pull calls.
     if (args.mode === "watch") await maybeBackoff();
+
+    // MF-21 — report any previous-instance crash log to the platform
+    // BEFORE doing other work. Needs an ApiClient; build one from the
+    // primary config (apiBase + apiKey live in env vars + the plist).
+    const primaryCfg = loadAllConfigs()[0];
+    const earlyApi = new ApiClient(primaryCfg);
+    await reportCrashIfAny(earlyApi);
 
     // Load the persistent dedup cache BEFORE any sync work so the
     // startup full-scan immediately matches what's already been pushed
