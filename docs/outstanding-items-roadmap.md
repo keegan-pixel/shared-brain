@@ -274,6 +274,57 @@ connection per toolkit. Backend: new table `org_composio_routing`.
 
 ## Section 4 — Quality of life (🟢)
 
+### N1 — Daemon circuit breaker for "platform unreachable"
+
+**What hits:** When Neon / Vercel / the platform is unreachable for
+extended periods (e.g. 2026-05-19 incident: Neon free-plan compute
+quota exhausted, DB paused), the daemon's MF-20 error handlers
+silently absorb each failed sync attempt and immediately retry on
+the next chokidar event. Result: ~12 failed requests/min, all
+invisible because handlers caught them, none successful because
+platform was down. The dedup-skip / file-change events kept firing
+ad infinitum.
+
+**Why it matters:** Surfaces failure quickly + reduces wasted
+traffic during platform outages. Today the daemon retries forever
+at full speed; with a circuit breaker it'd back off to maybe 1
+retry every 5-30 min after N consecutive failures.
+
+**Plan:**
+1. Track consecutive failed sync responses in a module-level counter.
+2. After 5 consecutive fails, enter "tripped" state — back off to
+   one retry every 5 min instead of every chokidar event.
+3. After 30+ min of tripped state, back off further (every 30 min).
+4. Any successful response resets the counter + closes the breaker.
+5. Surface the tripped state via a log line on each retry attempt
+   so the user can see "platform unreachable, backing off".
+
+**Estimated effort:** 2-3 hours.
+
+---
+
+### N2 — Daemon real-time runtime error reporting (was MF-22)
+
+**What hits:** MF-20's unhandledRejection / uncaughtException
+handlers absorb errors silently to keep the daemon alive. Useful,
+but means we have no visibility into what's actually failing inside
+the daemon at runtime. We wrote this fix on 2026-05-19 (commit
+`8b93996`, since discarded) but didn't ship because the Neon-capped
+issue was the actual root cause that day.
+
+**Why we'd want it later:** Future weird crashes (not caused by
+external service outages) would otherwise go uncaptured. The
+fire-and-forget POST to `/api/daemon/crash-report` from inside the
+error handlers + an `process.on('exit')` hook to detect unexpected
+clean exits would give us full visibility without needing user logs.
+
+**Plan:** Restore the code from git history (`git show 8b93996 -- agent/src/index.ts`)
+or re-implement. ~90 lines of additive code in `agent/src/index.ts`.
+
+**Estimated effort:** 30 min (lift from git history).
+
+---
+
 ### R3 — Cross-vault path collision handling
 
 **What hits:** When user has multiple vault paths (Richard has 3), if
@@ -421,6 +472,8 @@ All deferred until v2.1+ or paid tier launch.
 | D2 | org_memberships + invites | 🟡 | 1-2 days | ✓ |
 | D3 | Multi-org doc membership | 🟡 | day+ | partial |
 | D4 | Per-org Composio routing UI | 🟡 | half-day | ✓ |
+| N1 | Daemon circuit breaker for "platform unreachable" | 🟢 | 2-3hr | ✓ |
+| N2 | Daemon real-time runtime error reporting (was MF-22) | 🟢 | 30min | ✓ (in git history) |
 | R3 | Cross-vault path collision | 🟢 | half-day | ✓ |
 | — | Backfill re-extract script | 🟢 | 1-2hr | ✓ |
 | — | Daemon log rotation | 🟢 | 1-2hr | ✓ |

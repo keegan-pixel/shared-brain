@@ -1112,3 +1112,142 @@ NEVER mtime as the primary signal in a multi-tenant product.
 - **Pro plan upgrade timing** — Keegan upgraded mid-incident, which
   was both the right call AND meant we could ship a fix without
   panicking about overages while doing it.
+
+---
+
+# Part Four — The Neon Free-Plan Cap Incident (2026-05-19)
+
+> **Status:** Cascading incident from Richard's install. Neon (the
+> Postgres provider) hit its free-tier compute cap and paused the
+> database. Daemon's MF-20 error handlers absorbed the resulting
+> DB-connection errors silently, masking the actual cause.
+> Resolved by upgrading Neon to Launch plan ($0.106/CU-hour).
+> Captured here as the next chapter so the pattern is recognized
+> faster next time.
+
+---
+
+## 24. Incident summary
+
+Three days after Richard's install (Part Two) and the 600k Vercel
+edge-request incident (Part Three), Neon emailed Keegan that he'd
+used all monthly compute on the free plan. Database compute paused.
+
+**Symptoms looked just like another runaway loop:**
+- Vercel runtime logs showed `POST /api/daemon/config` + `GET /api/sync/pull`
+  every ~10 seconds from Richard's daemon
+- ~12 requests/min sustained = 17,280 DB queries/day from one daemon
+- Empty `/tmp/shared-brain-sync.richard-lackey-brain.err` (no stderr output)
+- MF-21's `reportCrashIfAny` returned nothing on every restart
+
+We initially diagnosed this as a daemon code bug and shipped MF-20
+(error handlers + restart backoff + idempotent /api/daemon/config)
+and started MF-22 (real-time runtime error reporting) before Keegan
+checked the Neon dashboard and saw "compute paused — free quota
+exhausted."
+
+**Actual cause:** Neon was paused. Every daemon DB query failed.
+MF-20's `process.on('unhandledRejection')` handlers absorbed the
+DB-connection errors silently → daemon stayed alive but couldn't
+do useful work → retried constantly → 12 req/min looked like a
+crash-loop but was actually a "platform down" loop.
+
+**Resolution:** Keegan upgraded Neon to Launch plan
+($0.106/CU-hour, usage-based, no hard cap). Within minutes, Vercel
+runtime logs returned to expected baseline (~1-2 req/min/daemon).
+
+---
+
+## 25. Why the diagnosis was hard
+
+### 25.1 MF-20 hid the signal
+
+The error handlers added on 2026-05-19 specifically to keep the
+daemon alive during transient errors caught the persistent DB-
+connection errors silently. No stderr output, no crash report, no
+visible signal beyond "lots of requests, all failing implicitly."
+
+The cure became part of the disease — we couldn't see WHAT was
+failing because the safety net was too good at hiding it.
+
+### 25.2 Symptoms mimicked a real crash-loop
+
+12 req/min of `/api/daemon/config` + `/api/sync/pull` matches the
+signature of a daemon that's restarting every 10s. We assumed a
+local code bug (which is what we shipped MF-20 / MF-21 / MF-22 for)
+instead of asking "is the platform itself unreachable?"
+
+### 25.3 No platform-side health gauge
+
+We had no quick "is the database alive?" check. The only way to
+verify Neon's status was to check the Neon dashboard manually —
+which we didn't think to do until 2+ hours into the incident
+because the platform itself was returning 200 responses (most reads
+were probably cached or didn't fail).
+
+---
+
+## 26. Discipline lessons
+
+### 26.1 (Add to ADR-038, Rule 7) Always check provider dashboards first when symptoms scale weirdly
+
+When a single user generates a 90th-percentile traffic pattern that
+doesn't fit any local code-bug hypothesis, **first check the
+external service dashboards** (Neon compute, Vercel quota,
+Composio rate limit, Anthropic API quota, OpenAI billing). The
+issue may not be in your code at all.
+
+Common rule of thumb: if the symptom is "lots of requests, all
+implicit failures, no crashes, no logs" — suspect external service
+throttling before suspecting local logic.
+
+### 26.2 Error handlers must surface what they swallow
+
+MF-20's handlers were a correct architectural choice for the
+runaway pattern they were designed to prevent. But they should
+have ALSO surfaced what they were catching to a visible place
+(activity_feed, log, monitoring dashboard). That's exactly what
+MF-22 was designed for — the irony is we held MF-22 because the
+incident resolved before we shipped it.
+
+**Going forward:** any "swallow this error to keep running" code
+path MUST report what it swallowed somewhere visible. Otherwise
+the safety net becomes a blind spot.
+
+### 26.3 Build a quick "is the platform healthy?" check
+
+Add a `/api/status` smoke-test that exercises:
+- DB read (cheap query)
+- DB write (test row insert/delete)
+- Composio reachability (HEAD to their MCP endpoint)
+- Anthropic reachability
+
+If any fail, surface "platform degraded" on the dashboard. Would
+have flagged Neon being paused immediately.
+
+---
+
+## 27. Carry-forward (added to Outstanding Items Roadmap)
+
+| # | Item | Severity |
+|---|---|---|
+| N1 | Daemon circuit breaker for "platform unreachable" — exponential backoff after N consecutive sync failures | 🟢 |
+| N2 | Daemon real-time runtime error reporting (was MF-22 in commit `8b93996`, discarded on 2026-05-19 after Neon was identified as cause; restore from git history when needed) | 🟢 |
+| — | Platform health dashboard / smoke-test endpoint that catches "external service down" cases | 🟢 |
+
+---
+
+## 28. What worked
+
+- **The "wait, let me check the Neon dashboard" instinct.** Saved
+  us from over-engineering the daemon to fix a problem that didn't
+  exist there.
+- **MF-20's restart backoff** still helped — even though it didn't
+  solve the root cause, the 60s sleep prevented the daemon from
+  hitting the dead DB at 12 req/min during the Neon outage. Without
+  it the request rate would have been MUCH higher.
+- **Holding MF-22 instead of shipping it reflexively.** Keegan's
+  "let me check Neon first" before pushing more code prevented us
+  from adding ~90 lines of instrumentation we didn't need.
+- **Neon Launch plan upgrade** was the right immediate move —
+  $0.106/CU-hour is reasonable, no hard cap, autoscale to 16 CU.

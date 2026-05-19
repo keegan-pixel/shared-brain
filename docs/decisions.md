@@ -100,6 +100,35 @@ boring), append a section to
 post-mortem) capturing what hit. If a new failure-mode pattern
 emerges, add it to the discipline rules here.
 
+### Rule 7 — Check external service dashboards first when symptoms scale weirdly
+
+Added 2026-05-19 after the Neon free-plan cap incident (see Part
+Four of the post-mortem doc). Richard's daemon was generating ~12
+req/min of failed sync calls because Neon had paused his database
+compute (free-tier monthly cap exhausted). MF-20's error handlers
+absorbed the resulting DB-connection errors silently, so the
+symptoms looked like a local code bug. We spent 2+ hours diagnosing
+the daemon before Keegan thought to check the Neon dashboard.
+
+**When a single user generates a 90th-percentile traffic pattern
+that doesn't fit any local code-bug hypothesis, FIRST check
+external service dashboards:**
+- Neon compute / billing
+- Vercel quota / firewall logs
+- Composio rate limit / billing
+- Anthropic API quota / billing
+- OpenAI billing / rate limit
+
+The issue may not be in your code at all. Common rule of thumb: if
+the symptom is "lots of requests, all implicit failures, no
+crashes, no logs" — suspect external service throttling before
+suspecting local logic.
+
+**Corollary:** any "swallow this error to keep running" code path
+MUST report what it swallowed somewhere visible (activity_feed,
+dashboard, structured log). Otherwise the safety net becomes a
+blind spot — see MF-20's handlers masking the Neon issue.
+
 ### Rule 6 — Don't use volatile filesystem metadata for change detection
 
 Added 2026-05-15 after the 600k Vercel edge-request incident (see
