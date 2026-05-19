@@ -34,9 +34,44 @@ const Schema = z.object({
   vaultName: z.string().max(120).nullable().optional(),
 });
 
+function arrayEquals(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export const POST = handle(async (req: Request) => {
   const { orgId } = await requireSyncAuth(req);
   const body = await parseJson(req, Schema);
+
+  // Fast no-op path: if the daemon is reporting the same config we
+  // already have, skip the UPDATE entirely. Cuts Neon compute when a
+  // daemon is in a crash-loop or restart storm — each restart re-reports
+  // the same paths and we used to write the same values 10x/min.
+  // Discovered 2026-05-19 during Richard's daemon crash-loop incident.
+  const [existing] = await db
+    .select({
+      vaultPaths: organizations.vaultPaths,
+      vaultName: organizations.vaultName,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1);
+
+  if (existing) {
+    const pathsMatch = arrayEquals(existing.vaultPaths, body.vaultPaths);
+    const nameMatch =
+      body.vaultName === undefined ||
+      (body.vaultName || null) === (existing.vaultName ?? null);
+    if (pathsMatch && nameMatch) {
+      return NextResponse.json({
+        ok: true,
+        vault_paths: existing.vaultPaths,
+        vault_name: existing.vaultName,
+        skipped: true,
+      });
+    }
+  }
 
   const update: { vaultPaths: string[]; vaultName?: string | null } = {
     vaultPaths: body.vaultPaths,

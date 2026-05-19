@@ -2,6 +2,8 @@ import chokidar from "chokidar";
 import path from "node:path";
 import pLimit from "p-limit";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { ApiClient } from "./api.ts";
 import { loadAllConfigs, relPath, type SyncConfig } from "./config.ts";
 import {
@@ -208,9 +210,65 @@ async function watch(args: Args) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
+/**
+ * Restart backoff (MF-20): track when the daemon last started. If we
+ * just started < BACKOFF_THRESHOLD_MS ago, sleep before doing any work.
+ * Combined with launchd's KeepAlive, this prevents tight crash-loops
+ * from generating runaway API traffic.
+ *
+ * Discovered 2026-05-19: Richard's daemon was crash-looping every ~10s,
+ * generating 12 req/min of POST /api/daemon/config + GET /api/sync/pull
+ * (= ~17,280 DB queries/day from one daemon). Each was cheap individually
+ * but burned through his Neon Pro compute quota in days.
+ *
+ * State file at ~/.shared-brain-sync/last-start.txt (epoch ms).
+ */
+const BACKOFF_FILE = path.join(homedir(), ".shared-brain-sync", "last-start.txt");
+const BACKOFF_THRESHOLD_MS = 30_000; // < 30s since last start = recent crash
+const BACKOFF_SLEEP_MS = 60_000; // sleep 60s on crash-loop detection
+
+async function maybeBackoff(): Promise<void> {
+  try {
+    const raw = await readFile(BACKOFF_FILE, "utf8");
+    const lastStart = Number(raw.trim());
+    const elapsed = Date.now() - lastStart;
+    if (Number.isFinite(lastStart) && elapsed < BACKOFF_THRESHOLD_MS) {
+      console.warn(
+        `[sync] crash-loop detected (last start ${Math.round(elapsed / 1000)}s ago). ` +
+          `Sleeping ${BACKOFF_SLEEP_MS / 1000}s before starting work to let launchd backoff catch up.`,
+      );
+      await new Promise((r) => setTimeout(r, BACKOFF_SLEEP_MS));
+    }
+  } catch {
+    /* first run or unreadable — no backoff needed */
+  }
+  // Record this start time for the NEXT process to consult.
+  try {
+    await mkdir(path.dirname(BACKOFF_FILE), { recursive: true });
+    await writeFile(BACKOFF_FILE, String(Date.now()), "utf8");
+  } catch {
+    /* swallow — best-effort */
+  }
+}
+
+// Global safety net (MF-20): catch any unhandled error so a single
+// transient issue doesn't kill the daemon and trigger launchd restart.
+// Log it loud and keep going. If we DO want to exit, that path should
+// be explicit, not implicit-via-unhandled-error.
+process.on("unhandledRejection", (reason) => {
+  console.error("[sync] unhandledRejection (suppressed, daemon stays alive):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[sync] uncaughtException (suppressed, daemon stays alive):", err);
+});
+
 (async () => {
   const args = parseArgs();
   try {
+    // Backoff if we just crashed-and-restarted. Prevents tight crash-loops
+    // from hammering the platform with daemon/config + sync/pull calls.
+    if (args.mode === "watch") await maybeBackoff();
+
     // Load the persistent dedup cache BEFORE any sync work so the
     // startup full-scan immediately matches what's already been pushed
     // and skips the dedup-skipped POST burst.
